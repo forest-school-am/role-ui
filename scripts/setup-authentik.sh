@@ -90,14 +90,18 @@ success "authentik is ready."
 # ---------------------------------------------------------------------------
 
 info "Checking for existing token '${TOKEN_IDENTIFIER}' ..."
-existing=$(curl -sf \
+token_exists=$(curl -sf \
     -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
     "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/?identifier=${TOKEN_IDENTIFIER}" \
-    | jq -r '.results[0].key // empty') || true
+    | jq -r '.results[0].identifier // empty') || true
 
-if [[ -n "$existing" ]]; then
-    success "Token '${TOKEN_IDENTIFIER}' already exists."
-    API_TOKEN="$existing"
+if [[ -n "$token_exists" ]]; then
+    success "Token '${TOKEN_IDENTIFIER}' already exists — retrieving key ..."
+    API_TOKEN=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/${TOKEN_IDENTIFIER}/view_key/" \
+        | jq -r '.key') || error "Failed to retrieve existing token key."
+    success "Retrieved existing API token."
 else
     # -----------------------------------------------------------------------
     # Step 4 — Find or create the service account user
@@ -198,7 +202,7 @@ else
     info "Fetching authorization and invalidation flow UUIDs ..."
     auth_flow=$(curl -sf \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?slug=default-provider-authorization-implicit-consent" \
+        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=authorization" \
         | jq -r '.results[0].pk') || error "Failed to fetch authorization flow."
     inval_flow=$(curl -sf \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
@@ -208,8 +212,10 @@ else
     info "Fetching openid scope mapping UUID ..."
     openid_mapping=$(curl -sf \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/provider/scope/?scope_name=openid" \
-        | jq -r '.results[0].pk') || error "Failed to fetch openid scope mapping."
+        "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
+        | jq -r '.results[] | select(.name | test("OpenID.*openid"; "i")) | .pk' | head -1) \
+        || error "Failed to fetch openid scope mapping."
+    [[ -n "$openid_mapping" ]] || error "OpenID scope mapping not found — is authentik fully initialised?"
 
     info "Creating OIDC provider '${OIDC_CLIENT_ID}' ..."
     provider_pk=$(curl -sf \
