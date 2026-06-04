@@ -209,13 +209,18 @@ else
         "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=invalidation" \
         | jq -r '.results[0].pk') || error "Failed to fetch invalidation flow."
 
-    info "Fetching openid scope mapping UUID ..."
-    openid_mapping=$(curl -sf \
-        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
-        | jq -r '.results[] | select(.name | test("OpenID.*openid"; "i")) | .pk' | head -1) \
-        || error "Failed to fetch openid scope mapping."
-    [[ -n "$openid_mapping" ]] || error "OpenID scope mapping not found — is authentik fully initialised?"
+    info "Waiting for OpenID scope mapping (authentik finishes seeding defaults after health check) ..."
+    openid_mapping=""
+    for i in $(seq 1 24); do
+        openid_mapping=$(curl -sf \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
+            | jq -r '.results[] | select(.name | test("OpenID.*openid"; "i")) | .pk' | head -1) || true
+        [[ -n "$openid_mapping" ]] && break
+        info "  Not ready yet (attempt ${i}/24). Retrying in 5s..."
+        sleep 5
+    done
+    [[ -n "$openid_mapping" ]] || error "OpenID scope mapping never appeared after 2 minutes."
 
     info "Creating OIDC provider '${OIDC_CLIENT_ID}' ..."
     provider_pk=$(curl -sf \
