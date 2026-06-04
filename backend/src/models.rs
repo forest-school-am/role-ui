@@ -24,6 +24,28 @@ pub struct GroupMembership {
 }
 
 // ---------------------------------------------------------------------------
+// SocialAccount — one entry in a user's social contact list
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialAccount {
+    /// e.g. "email", "telegram", "google"
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub address: String,
+}
+
+// ---------------------------------------------------------------------------
+// SshKey — a named SSH public key
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshKey {
+    pub label: String,
+    pub key: String,
+}
+
+// ---------------------------------------------------------------------------
 // User — full profile response
 // ---------------------------------------------------------------------------
 
@@ -33,9 +55,9 @@ pub struct User {
     pub uuid: String,
     pub username: String,
     pub name: String,
-    pub email: String,
     pub is_active: bool,
-    pub telegram: Option<String>,
+    pub social: Vec<SocialAccount>,
+    pub ssh: Vec<SshKey>,
     pub groups: Vec<GroupMembership>,
 }
 
@@ -55,7 +77,7 @@ pub struct GroupSummary {
 }
 
 // ---------------------------------------------------------------------------
-// GroupMember — a single member inside a group detail response
+// GroupMember — compact member entry inside a group detail response
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +88,6 @@ pub struct GroupMember {
     pub name: String,
     pub email: String,
     pub is_active: bool,
-    pub telegram: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

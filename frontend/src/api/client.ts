@@ -13,14 +13,11 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: on 401 clear session and redirect to login
+// Response interceptor: on 401 clear session and redirect to login.
 apiClient.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
-    if (
-      axios.isAxiosError(error) &&
-      error.response?.status === 401
-    ) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
       sessionStorage.clear();
       window.location.href = '/';
     }

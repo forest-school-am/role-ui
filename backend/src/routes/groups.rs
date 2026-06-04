@@ -69,13 +69,6 @@ struct CreateSubgroupBody {
 
 /// Convert an AuthentikUser to a GroupMember output model.
 fn to_group_member(u: &AuthentikUser) -> GroupMember {
-    let telegram = u
-        .attributes
-        .as_ref()
-        .and_then(|a| a.get("telegram"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
     GroupMember {
         pk: u.pk,
         uuid: u.uuid.clone(),
@@ -83,7 +76,6 @@ fn to_group_member(u: &AuthentikUser) -> GroupMember {
         name: u.name.clone(),
         email: u.email.clone(),
         is_active: u.is_active,
-        telegram,
     }
 }
 

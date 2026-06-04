@@ -28,7 +28,13 @@ const OAuthCallback: React.FC = () => {
     const verifier = sessionStorage.getItem('pkce_verifier');
 
     if (!code) {
-      setError('No authorization code received.');
+      const errorParam = params.get('error');
+      const desc = params.get('error_description');
+      setError(
+        errorParam
+          ? `authentik error: ${errorParam}${desc ? ` — ${desc}` : ''}`
+          : `No authorization code received. URL params: ${window.location.search || '(none)'}`,
+      );
       return;
     }
 
@@ -45,7 +51,6 @@ const OAuthCallback: React.FC = () => {
     const baseUrl = import.meta.env.VITE_AUTHENTIK_BASE_URL as string;
     const clientId = import.meta.env.VITE_OIDC_CLIENT_ID as string;
     const redirectUri = import.meta.env.VITE_OIDC_REDIRECT_URI as string;
-    const slug = import.meta.env.VITE_OIDC_SLUG as string;
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -55,7 +60,8 @@ const OAuthCallback: React.FC = () => {
       code_verifier: verifier,
     });
 
-    fetch(`${baseUrl}/application/o/${slug}/token/`, {
+    // In authentik 2026.x the token endpoint is global (no slug in path).
+    fetch(`${baseUrl}/application/o/token/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),

@@ -28,11 +28,23 @@ const PersonalPage: React.FC = () => {
   if (isError) {
     const message =
       error instanceof Error ? error.message : 'Failed to load user profile.';
+    const isAuthError = message.includes('502') || message.includes('401');
     return (
       <div className="flex min-h-screen items-center justify-center p-8">
         <div className="rounded-lg border border-red-300 bg-red-50 p-6 text-red-800 max-w-md w-full">
           <h2 className="text-lg font-semibold mb-1">Error</h2>
-          <p className="text-sm">{message}</p>
+          <p className="text-sm mb-4">{message}</p>
+          {isAuthError && !userUuid && (
+            <button
+              className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+              onClick={() => {
+                sessionStorage.clear();
+                window.location.href = '/';
+              }}
+            >
+              Sign out and try again
+            </button>
+          )}
         </div>
       </div>
     );

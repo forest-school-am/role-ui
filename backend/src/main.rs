@@ -14,7 +14,7 @@ mod error;
 mod models;
 mod routes;
 
-use auth::{AuthenticatedUser, build_token_cache, build_uuid_pk_cache};
+use auth::{build_token_cache, AuthenticatedUser};
 use authentik::AuthentikClient;
 use config::Config;
 
@@ -24,13 +24,9 @@ use config::Config;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub config: Arc<Config>,
     pub authentik: Arc<AuthentikClient>,
-    pub http_client: reqwest::Client,
-    /// Token hash → AuthenticatedUser (60-second TTL)
+    /// token_hash → AuthenticatedUser (60-second TTL)
     pub token_cache: Arc<Cache<String, AuthenticatedUser>>,
-    /// User UUID → integer PK (5-minute TTL)
-    pub uuid_pk_cache: Arc<Cache<String, i64>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +59,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Build shared state.
     let state = AppState {
-        config: Arc::new(config),
         authentik,
-        http_client: reqwest::Client::new(),
         token_cache: Arc::new(build_token_cache()),
-        uuid_pk_cache: Arc::new(build_uuid_pk_cache()),
     };
 
     // Build the axum router.

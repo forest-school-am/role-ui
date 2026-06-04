@@ -353,6 +353,50 @@ impl AuthentikClient {
         )))
     }
 
+    /// Validate a user-supplied bearer token via the userinfo endpoint.
+    /// Returns the user's UUID (sub claim) on success.
+    pub async fn validate_user_token(&self, token: &str) -> Result<String, AppError> {
+        let url = format!(
+            "{}/application/o/userinfo/",
+            self.base_url.trim_end_matches('/')
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .map_err(|e| AppError::AuthentikError(format!("userinfo request failed: {e}")))?;
+
+        if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
+            let body = resp.text().await.unwrap_or_default();
+            tracing::warn!("userinfo rejected token: {body}");
+            return Err(AppError::Unauthorized);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            tracing::warn!("userinfo error {status}: {body}");
+            return Err(AppError::AuthentikError(format!(
+                "userinfo returned {status}: {body}"
+            )));
+        }
+
+        #[derive(Deserialize)]
+        struct UserinfoResponse {
+            sub: String,
+        }
+
+        let info = resp
+            .json::<UserinfoResponse>()
+            .await
+            .map_err(|e| AppError::AuthentikError(format!("failed to decode userinfo: {e}")))?;
+
+        Ok(info.sub)
+    }
+
     /// Remove a user from a group via authentik's dedicated endpoint.
     pub async fn remove_user_from_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
         let url = format!(

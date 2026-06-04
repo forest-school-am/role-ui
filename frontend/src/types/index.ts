@@ -8,15 +8,27 @@ export interface GroupMembership {
   role: GroupRole;
 }
 
+// A social contact entry (email, telegram, google, …)
+export interface SocialAccount {
+  type: string;
+  address: string;
+}
+
+// A named SSH public key
+export interface SshKey {
+  label: string;
+  key: string;
+}
+
 // Full user profile (response from GET /api/users/me and GET /api/users/:uuid)
 export interface User {
   pk: number;
   uuid: string;          // UUID
   username: string;
   name: string;
-  email: string;
   is_active: boolean;
-  telegram: string | null;
+  social: SocialAccount[];
+  ssh: SshKey[];
   groups: GroupMembership[];
 }
 
@@ -44,7 +56,6 @@ export interface GroupMember {
   name: string;
   email: string;
   is_active: boolean;
-  telegram: string | null;
 }
 
 // Full group detail (response from GET /api/groups/:groupPk)

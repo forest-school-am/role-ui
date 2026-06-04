@@ -63,7 +63,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const baseUrl = import.meta.env.VITE_AUTHENTIK_BASE_URL as string;
     const clientId = import.meta.env.VITE_OIDC_CLIENT_ID as string;
     const redirectUri = import.meta.env.VITE_OIDC_REDIRECT_URI as string;
-    const slug = import.meta.env.VITE_OIDC_SLUG as string;
 
     const verifier = generateRandomBase64Url(64);
     const challenge = await generateCodeChallenge(verifier);
@@ -76,13 +75,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'openid profile email',
+      scope: 'openid',
       code_challenge: challenge,
       code_challenge_method: 'S256',
       state,
     });
 
-    window.location.href = `${baseUrl}/application/o/${slug}/authorize/?${params.toString()}`;
+    // In authentik 2026.x the authorize endpoint is global (no slug in path).
+    window.location.href = `${baseUrl}/application/o/authorize/?${params.toString()}`;
   };
 
   const logout = () => {
