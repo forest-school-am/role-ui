@@ -32,13 +32,13 @@ app cmd='help':
 # ---------------------------------------------------------------------------
 
 # Create service account + OIDC app using the bootstrap token
-setup:
+_authentik-setup:
     #!/usr/bin/env bash
     set -euo pipefail
     AUTHENTIK_BOOTSTRAP_TOKEN="${AUTHENTIK_BOOTSTRAP_TOKEN}" bash scripts/setup-authentik.sh
 
 # Create 10 test users + groups using the API token
-seed:
+_authentik-seed:
     #!/usr/bin/env bash
     set -euo pipefail
     AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" bash scripts/seed-test-data.sh
@@ -83,8 +83,10 @@ _authentik-reset:
         sleep 5
     done
     echo "Authentik is healthy."
-    just setup
-    just seed
+    just authentik setup
+    # Re-source .env so seed gets the token just written by setup
+    set -a; source .env; set +a
+    AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" bash scripts/seed-test-data.sh
 
 # ---------------------------------------------------------------------------
 # Private: app subcommands
