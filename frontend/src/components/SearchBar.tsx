@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { searchAll, getSearchLinkGen } from '../api/search';
-import type { UserSearchResult, GroupSearchResult, SearchResult } from '../api/search';
+import { searchAll } from '../api/search';
+import type { UserSearchResult, GroupSearchResult } from '../api/search';
 
 interface SearchBarProps {
   onNavigate: (url: string) => void;
@@ -21,22 +21,6 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data: linkGenJs } = useQuery({
-    queryKey: ['search-link-gen'],
-    queryFn: getSearchLinkGen,
-    staleTime: Infinity,
-  });
-
-  const generateLink = useMemo<((obj: SearchResult) => string) | null>(() => {
-    if (!linkGenJs) return null;
-    try {
-      // eslint-disable-next-line no-new-func
-      return new Function('obj', `${linkGenJs}; return generateSearchLink(obj);`) as (obj: SearchResult) => string;
-    } catch {
-      return null;
-    }
-  }, [linkGenJs]);
-
   const { data: searchData } = useQuery({
     queryKey: ['search', debouncedQuery],
     queryFn: () => searchAll(debouncedQuery),
@@ -54,7 +38,15 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
   const hasResults = userResults.length > 0 || groupResults.length > 0;
 
   const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
-    const url = generateLink ? generateLink(result) : '#';
+    let url: string;
+    switch (result.__search_type) {
+      case 'user':
+        url = `/users/${encodeURIComponent(result.username)}`;
+        break;
+      case 'group':
+        url = `/groups/${encodeURIComponent(result.name)}`;
+        break;
+    }
     setQuery(''); setOpen(false); onNavigate(url);
   };
 

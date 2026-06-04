@@ -7,16 +7,13 @@ import { getMe } from '../../api/users';
 import type { GroupMember, GroupChild } from '../../types';
 import ColorPicker from '../dag/ColorPicker';
 import CrownIcon from '../CrownIcon';
-import GroupDetailPanel, {
+import {
   AddMemberModal,
   CreateSubgroupModal,
   AddChildGroupModal,
   ResignLeaderModal,
   DisbandGroupModal,
 } from './GroupDetailPanel';
-
-// Suppress unused import warning — GroupDetailPanel used via named exports only
-void GroupDetailPanel;
 
 interface GroupPreviewPanelProps {
   groupPk: string;
@@ -174,17 +171,11 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
     return membership ? membership.role : 'non-member';
   }, [detail, me]);
 
-  const canAssignLeader = useMemo(() => {
-    if (!detail || !me) return false;
-    return (me.groups.find(g => g.group_pk === detail.pk)?.role === 'leader') === true;
-  }, [detail, me]);
-
   const [showAddMember, setShowAddMember] = useState(false);
   const [showCreateSubgroup, setShowCreateSubgroup] = useState(false);
   const [showAddChildGroup, setShowAddChildGroup] = useState(false);
   const [showResign, setShowResign] = useState(false);
   const [showDisband, setShowDisband] = useState(false);
-  const [mutationError, _setMutationError] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
@@ -342,7 +333,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
             <section className="px-4 py-2 border-t border-gray-100">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Subgroups</span>
-                {!isVirtual && callerRole === 'leader' && canAssignLeader && (
+                {!isVirtual && callerRole === 'leader' && (
                   <div className="flex gap-1">
                     <button
                       className="text-xs text-indigo-600 hover:text-indigo-800"
@@ -366,7 +357,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                       child={child}
                       parentGroupName={groupName}
                       parentGroupPk={groupPk}
-                      canDetach={callerRole === 'leader' && canAssignLeader}
+                      canDetach={callerRole === 'leader'}
                     />
                   ))}
                   {detail.children.length > 5 && (
@@ -381,7 +372,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
           )}
 
           {/* Group colour section */}
-          {!isVirtual && callerRole === 'leader' && canAssignLeader && detail && (
+          {!isVirtual && callerRole === 'leader' && detail && (
             <section className="px-4 py-2 border-t border-gray-100">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Group colour</p>
               <ColorPicker
@@ -393,12 +384,8 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
             </section>
           )}
 
-          {mutationError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mx-3 mb-2">{mutationError}</p>
-          )}
-
           {/* Leader actions section */}
-          {!isVirtual && (callerRole === 'leader' && canAssignLeader) && (
+          {!isVirtual && (callerRole === 'leader') && (
             <section className="px-4 py-2 border-t border-gray-100 flex flex-col gap-1">
               <button
                 className="w-full text-xs rounded border border-dashed border-red-300 py-1 text-red-600 hover:bg-red-50"

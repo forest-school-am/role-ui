@@ -45,11 +45,6 @@ export interface GroupSummary {
   is_virtual?: boolean;
 }
 
-// Full group list response
-export interface GroupListResponse {
-  groups: GroupSummary[];
-}
-
 // A single member inside a group detail response
 export interface GroupMember {
   pk: number;
@@ -84,11 +79,6 @@ export interface GroupDetail {
 // Mutation success response (used for add/remove member, manager, leader)
 export interface MutationSuccess {
   ok: true;
-}
-
-// Error response from backend
-export interface ApiError {
-  error: string;
 }
 
 // React Flow node data payload for GroupNode
