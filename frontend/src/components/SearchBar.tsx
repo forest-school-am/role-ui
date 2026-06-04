@@ -1,25 +1,28 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { searchAll, getSearchLinkGen } from '../api/search';
 import type { UserSearchResult, GroupSearchResult, SearchResult } from '../api/search';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface SearchBarProps {
   onNavigate: (url: string) => void;
 }
 
+// Local component — no need to export.
+function SearchCategoryHeader({ label }: { label: string }) {
+  return (
+    <li className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
+      {label}
+    </li>
+  );
+}
+
 export default function SearchBar({ onNavigate }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Debounce search query
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const debouncedQuery = useDebounce(query, 300);
 
   const { data: searchData } = useQuery({
     queryKey: ['search', debouncedQuery],
@@ -87,9 +90,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
                        border-gray-200 bg-white shadow-lg max-h-72 overflow-y-auto">
           {userResults.length > 0 && (
             <>
-              <li className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
-                Users
-              </li>
+              <SearchCategoryHeader label="Users" />
               {userResults.map((u) => (
                 <li
                   key={u.uuid}
@@ -104,9 +105,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
           )}
           {groupResults.length > 0 && (
             <>
-              <li className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100 border-t border-gray-100">
-                Groups
-              </li>
+              <SearchCategoryHeader label="Groups" />
               {groupResults.map((g) => (
                 <li
                   key={g.pk}

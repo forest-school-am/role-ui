@@ -1,7 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getUser } from '../../api/users';
+import PanelLoadingSkeleton from '../ui/PanelLoadingSkeleton';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { SECTION_LABEL_CLS } from '../../lib/ui-constants';
 
 interface UserPreviewPanelProps {
   username: string;
@@ -14,14 +17,7 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
     queryFn: () => getUser(username),
   });
 
-  // Close on Escape key
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  useEscapeKey(onClose);
 
   return (
     <div className="fixed right-0 top-0 h-full w-72 bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col">
@@ -55,13 +51,7 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {isLoading && (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-6 rounded bg-gray-100 animate-pulse" />
-            ))}
-          </div>
-        )}
+        {isLoading && <PanelLoadingSkeleton />}
 
         {isError && (
           <p className="text-red-500 text-sm">
@@ -75,9 +65,7 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
 
             {user.social.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                  Social
-                </p>
+                <p className={`${SECTION_LABEL_CLS} mb-1`}>Social</p>
                 <div className="space-y-1">
                   {user.social.slice(0, 3).map((s, i) => (
                     <p key={i} className="text-sm text-gray-700">
@@ -90,8 +78,6 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
           </div>
         )}
       </div>
-
-
     </div>
   );
 };

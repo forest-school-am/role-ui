@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMe, getUser } from '../api/users';
 import UserCard from '../components/UserCard';
+import PageLoadingSkeleton from '../components/ui/PageLoadingSkeleton';
+import PageErrorCard from '../components/ui/PageErrorCard';
 
 const PersonalPage: React.FC = () => {
   // Present on /users/:username, absent on /me
@@ -14,15 +16,7 @@ const PersonalPage: React.FC = () => {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="space-y-3 w-full max-w-xl mx-auto p-8">
-          <div className="h-8 rounded bg-gray-200 animate-pulse w-1/2" />
-          <div className="h-4 rounded bg-gray-200 animate-pulse w-3/4" />
-          <div className="h-4 rounded bg-gray-200 animate-pulse w-2/3" />
-        </div>
-      </div>
-    );
+    return <PageLoadingSkeleton />;
   }
 
   if (isError) {
@@ -30,23 +24,19 @@ const PersonalPage: React.FC = () => {
       error instanceof Error ? error.message : 'Failed to load user profile.';
     const isAuthError = message.includes('502') || message.includes('401');
     return (
-      <div className="flex items-center justify-center h-full p-8">
-        <div className="rounded-lg border border-red-300 bg-red-50 p-6 text-red-800 max-w-md w-full">
-          <h2 className="text-lg font-semibold mb-1">Error</h2>
-          <p className="text-sm mb-4">{message}</p>
-          {isAuthError && !username && (
-            <button
-              className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
-              onClick={() => {
-                sessionStorage.clear();
-                window.location.href = '/';
-              }}
-            >
-              Sign out and try again
-            </button>
-          )}
-        </div>
-      </div>
+      <PageErrorCard message={message}>
+        {isAuthError && !username && (
+          <button
+            className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+            onClick={() => {
+              sessionStorage.clear();
+              window.location.href = '/';
+            }}
+          >
+            Sign out and try again
+          </button>
+        )}
+      </PageErrorCard>
     );
   }
 

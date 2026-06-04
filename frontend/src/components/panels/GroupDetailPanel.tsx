@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getGroup,
   addMember,
   removeMember,
   addManager,
@@ -13,18 +12,14 @@ import {
   detachChildGroup,
   disbandGroup,
 } from "../../api/groups";
+import { extractApiError } from "../../api/client";
 import type { GroupRole, GroupMember, GroupChild } from "../../types";
 import { searchUsers, type UserSummary } from "../../api/users";
 import CrownIcon from "../CrownIcon";
 import { useNavigate } from "react-router-dom";
-
-interface GroupDetailPanelProps {
-  groupPk: string;
-  groupName: string;
-  callerRole: GroupRole | "non-member";
-  canAssignLeader: boolean;
-  onClose: () => void;
-}
+import ModalShell from "../ui/ModalShell";
+import ModalActions from "../ui/ModalActions";
+import { useDebounce } from "../../hooks/useDebounce";
 
 // ---------------------------------------------------------------------------
 // Add Member Modal
@@ -46,17 +41,16 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Debounced search
-  useEffect(() => {
-    if (searchTerm.length < 2) {
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  // Fire search whenever the debounced term changes
+  React.useEffect(() => {
+    if (debouncedSearch.length < 2) {
       setSearchResults([]);
       return;
     }
-    const t = setTimeout(() => {
-      searchUsers(searchTerm).then(setSearchResults).catch(() => {});
-    }, 300);
-    return () => clearTimeout(t);
-  }, [searchTerm]);
+    searchUsers(debouncedSearch).then(setSearchResults).catch(() => {});
+  }, [debouncedSearch]);
 
   const mutation = useMutation({
     mutationFn: (userPk: number) => addMember(groupName, userPk),
@@ -66,9 +60,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       onClose();
     },
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to add member.";
-      setLocalError(message);
+      setLocalError(extractApiError(err));
     },
   });
 
@@ -83,90 +75,73 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-full">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">
-          Add Member
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Search by username or display name to find the user.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="relative">
-            <label
-              className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="userSearchInput"
-            >
-              Search user
-            </label>
-            {selectedUser ? (
-              <div className="flex items-center gap-2 rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5">
-                <span className="text-sm text-indigo-800 flex-1 min-w-0 truncate">
-                  {selectedUser.name} ({selectedUser.username})
-                </span>
-                <button
-                  type="button"
-                  className="text-xs text-indigo-500 hover:text-indigo-700 shrink-0"
-                  onClick={() => {
-                    setSelectedUser(null);
-                    setSearchTerm("");
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            ) : (
-              <>
-                <input
-                  id="userSearchInput"
-                  type="text"
-                  className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="e.g. alice"
-                  autoFocus
-                />
-                {searchResults.length > 0 && (
-                  <ul className="absolute z-10 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-                    {searchResults.map((u) => (
-                      <li
-                        key={u.pk}
-                        className="px-3 py-2 text-sm text-gray-800 cursor-pointer hover:bg-indigo-50"
-                        onClick={() => {
-                          setSelectedUser(u);
-                          setSearchResults([]);
-                          setSearchTerm("");
-                        }}
-                      >
-                        {u.name} ({u.username})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </div>
-          {localError && <p className="text-xs text-red-600">{localError}</p>}
-          <div className="flex gap-2 justify-end pt-1">
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={onClose}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-60"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? "Adding…" : "Add"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalShell title="Add Member">
+      <p className="text-xs text-gray-500 -mt-2 mb-3">
+        Search by username or display name to find the user.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="relative">
+          <label
+            className="block text-xs font-medium text-gray-700 mb-1"
+            htmlFor="userSearchInput"
+          >
+            Search user
+          </label>
+          {selectedUser ? (
+            <div className="flex items-center gap-2 rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5">
+              <span className="text-sm text-indigo-800 flex-1 min-w-0 truncate">
+                {selectedUser.name} ({selectedUser.username})
+              </span>
+              <button
+                type="button"
+                className="text-xs text-indigo-500 hover:text-indigo-700 shrink-0"
+                onClick={() => {
+                  setSelectedUser(null);
+                  setSearchTerm("");
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                id="userSearchInput"
+                type="text"
+                className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="e.g. alice"
+                autoFocus
+              />
+              {searchResults.length > 0 && (
+                <ul className="absolute z-10 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+                  {searchResults.map((u) => (
+                    <li
+                      key={u.pk}
+                      className="px-3 py-2 text-sm text-gray-800 cursor-pointer hover:bg-indigo-50"
+                      onClick={() => {
+                        setSelectedUser(u);
+                        setSearchResults([]);
+                        setSearchTerm("");
+                      }}
+                    >
+                      {u.name} ({u.username})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+        {localError && <p className="text-xs text-red-600">{localError}</p>}
+        <ModalActions
+          onCancel={onClose}
+          isPending={mutation.isPending}
+          submitLabel={mutation.isPending ? "Adding…" : "Add"}
+        />
+      </form>
+    </ModalShell>
   );
 };
 
@@ -197,9 +172,7 @@ export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
       onClose();
     },
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to create subgroup.";
-      setLocalError(message);
+      setLocalError(extractApiError(err));
     },
   });
 
@@ -219,51 +192,34 @@ export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-full">
-        <h3 className="text-base font-semibold text-gray-900 mb-3">
-          Create Subgroup
-        </h3>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label
-              className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="subgroupName"
-            >
-              Subgroup Name
-            </label>
-            <input
-              id="subgroupName"
-              type="text"
-              maxLength={150}
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Frontend Team"
-              autoFocus
-            />
-          </div>
-          {localError && <p className="text-xs text-red-600">{localError}</p>}
-          <div className="flex gap-2 justify-end pt-1">
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={onClose}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-60"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? "Creating…" : "Create"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalShell title="Create Subgroup">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label
+            className="block text-xs font-medium text-gray-700 mb-1"
+            htmlFor="subgroupName"
+          >
+            Subgroup Name
+          </label>
+          <input
+            id="subgroupName"
+            type="text"
+            maxLength={150}
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Frontend Team"
+            autoFocus
+          />
+        </div>
+        {localError && <p className="text-xs text-red-600">{localError}</p>}
+        <ModalActions
+          onCancel={onClose}
+          isPending={mutation.isPending}
+          submitLabel={mutation.isPending ? "Creating…" : "Create"}
+        />
+      </form>
+    </ModalShell>
   );
 };
 
@@ -295,9 +251,7 @@ export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
       onClose();
     },
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to connect group.";
-      setLocalError(message);
+      setLocalError(extractApiError(err));
     },
   });
 
@@ -313,51 +267,34 @@ export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-full">
-        <h3 className="text-base font-semibold text-gray-900 mb-3">
-          Connect Existing Group
-        </h3>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label
-              className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="childGroupName"
-            >
-              Child Group Name
-            </label>
-            <input
-              id="childGroupName"
-              type="text"
-              maxLength={150}
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              value={childName}
-              onChange={(e) => setChildName(e.target.value)}
-              placeholder="e.g. Backend Team"
-              autoFocus
-            />
-          </div>
-          {localError && <p className="text-xs text-red-600">{localError}</p>}
-          <div className="flex gap-2 justify-end pt-1">
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={onClose}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-60"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? "Connecting…" : "Connect"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalShell title="Connect Existing Group">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label
+            className="block text-xs font-medium text-gray-700 mb-1"
+            htmlFor="childGroupName"
+          >
+            Child Group Name
+          </label>
+          <input
+            id="childGroupName"
+            type="text"
+            maxLength={150}
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={childName}
+            onChange={(e) => setChildName(e.target.value)}
+            placeholder="e.g. Backend Team"
+            autoFocus
+          />
+        </div>
+        {localError && <p className="text-xs text-red-600">{localError}</p>}
+        <ModalActions
+          onCancel={onClose}
+          isPending={mutation.isPending}
+          submitLabel={mutation.isPending ? "Connecting…" : "Connect"}
+        />
+      </form>
+    </ModalShell>
   );
 };
 
@@ -391,9 +328,7 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
       onClose();
     },
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to resign as leader.";
-      setLocalError(message);
+      setLocalError(extractApiError(err));
     },
   });
 
@@ -408,90 +343,71 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-full">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">
-          Resign as Leader
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Choose a successor. They will become the new group leader.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label
-              className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="successorSelect"
-            >
-              Successor
-            </label>
-            <select
-              id="successorSelect"
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-              value={selectedPk}
-              onChange={(e) =>
-                setSelectedPk(
-                  e.target.value === "" ? "" : parseInt(e.target.value, 10),
-                )
-              }
-              disabled={members.length === 0}
-            >
-              <option value="">— Select a member —</option>
-              {members.map((m) => (
-                <option key={m.pk} value={m.pk}>
-                  {m.name} (@{m.username})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label
-              className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="resignConfirmInput"
-            >
-              Confirm resignation
-            </label>
-            <input
-              id="resignConfirmInput"
-              type="text"
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="Type the group name to confirm"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Type &ldquo;{groupName}&rdquo; to confirm resignation.
-            </p>
-          </div>
-          {localError && <p className="text-xs text-red-600">{localError}</p>}
-          {members.length === 0 && (
-            <p className="text-xs text-gray-400 italic">
-              No eligible members to assign as successor.
-            </p>
-          )}
-          <div className="flex gap-2 justify-end pt-1">
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={onClose}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
-              disabled={
-                mutation.isPending ||
-                members.length === 0 ||
-                confirmText !== groupName
-              }
-            >
-              {mutation.isPending ? "Resigning…" : "Resign"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalShell title="Resign as Leader">
+      <p className="text-xs text-gray-500 -mt-2 mb-3">
+        Choose a successor. They will become the new group leader.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label
+            className="block text-xs font-medium text-gray-700 mb-1"
+            htmlFor="successorSelect"
+          >
+            Successor
+          </label>
+          <select
+            id="successorSelect"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            value={selectedPk}
+            onChange={(e) =>
+              setSelectedPk(
+                e.target.value === "" ? "" : parseInt(e.target.value, 10),
+              )
+            }
+            disabled={members.length === 0}
+          >
+            <option value="">— Select a member —</option>
+            {members.map((m) => (
+              <option key={m.pk} value={m.pk}>
+                {m.name} (@{m.username})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label
+            className="block text-xs font-medium text-gray-700 mb-1"
+            htmlFor="resignConfirmInput"
+          >
+            Confirm resignation
+          </label>
+          <input
+            id="resignConfirmInput"
+            type="text"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type the group name to confirm"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Type &ldquo;{groupName}&rdquo; to confirm resignation.
+          </p>
+        </div>
+        {localError && <p className="text-xs text-red-600">{localError}</p>}
+        {members.length === 0 && (
+          <p className="text-xs text-gray-400 italic">
+            No eligible members to assign as successor.
+          </p>
+        )}
+        <ModalActions
+          onCancel={onClose}
+          isPending={mutation.isPending}
+          submitLabel={mutation.isPending ? "Resigning…" : "Resign"}
+          submitVariant="red"
+          submitDisabled={members.length === 0 || confirmText !== groupName}
+        />
+      </form>
+    </ModalShell>
   );
 };
 
@@ -499,14 +415,12 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
 // Disband Group Modal
 // ---------------------------------------------------------------------------
 interface DisbandGroupModalProps {
-  groupPk: string;
   groupName: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
 export const DisbandGroupModal: React.FC<DisbandGroupModalProps> = ({
-  groupPk: _groupPk,
   groupName,
   onClose,
   onSuccess,
@@ -522,9 +436,7 @@ export const DisbandGroupModal: React.FC<DisbandGroupModalProps> = ({
       onSuccess();
     },
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to disband group.";
-      setLocalError(message);
+      setLocalError(extractApiError(err));
     },
   });
 
@@ -535,52 +447,37 @@ export const DisbandGroupModal: React.FC<DisbandGroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-full">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">
-          Disband group
-        </h3>
-        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2 mb-3">
-          This will permanently delete the group &ldquo;{groupName}&rdquo; and
-          cannot be undone. All members will remain in the system but will lose
-          their membership in this group.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <input
-              type="text"
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="Type the group name to confirm"
-              autoFocus
-            />
-          </div>
-          {localError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
-              {localError}
-            </p>
-          )}
-          <div className="flex gap-2 justify-end pt-1">
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={onClose}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="w-full rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
-              disabled={mutation.isPending || confirmText !== groupName}
-            >
-              {mutation.isPending ? "Disbanding…" : "Disband"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalShell title="Disband group">
+      <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2 -mt-2 mb-3">
+        This will permanently delete the group &ldquo;{groupName}&rdquo; and
+        cannot be undone. All members will remain in the system but will lose
+        their membership in this group.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <input
+            type="text"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type the group name to confirm"
+            autoFocus
+          />
+        </div>
+        {localError && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+            {localError}
+          </p>
+        )}
+        <ModalActions
+          onCancel={onClose}
+          isPending={mutation.isPending}
+          submitLabel={mutation.isPending ? "Disbanding…" : "Disband"}
+          submitVariant="red"
+          submitDisabled={confirmText !== groupName}
+        />
+      </form>
+    </ModalShell>
   );
 };
 
@@ -841,250 +738,3 @@ const MemberRow: React.FC<MemberRowProps> = ({
     </div>
   );
 };
-
-// ---------------------------------------------------------------------------
-// GroupDetailPanel
-// ---------------------------------------------------------------------------
-const GroupDetailPanel: React.FC<GroupDetailPanelProps> = ({
-  groupPk,
-  groupName,
-  callerRole,
-  canAssignLeader,
-  onClose,
-}) => {
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [showCreateSubgroup, setShowCreateSubgroup] = useState(false);
-  const [showAddChildGroup, setShowAddChildGroup] = useState(false);
-  const [showResignLeader, setShowResignLeader] = useState(false);
-  const [showDisband, setShowDisband] = useState(false);
-
-  const {
-    data: detail,
-    isLoading,
-    isError,
-  } = useQuery({
-    queryKey: ["group", groupPk],
-    queryFn: () => getGroup(groupName),
-  });
-
-  return (
-    <>
-      {showAddMember && (
-        <AddMemberModal
-          groupPk={groupPk}
-          groupName={groupName}
-          onClose={() => setShowAddMember(false)}
-        />
-      )}
-      {showCreateSubgroup && (
-        <CreateSubgroupModal
-          groupPk={groupPk}
-          groupName={groupName}
-          onClose={() => setShowCreateSubgroup(false)}
-        />
-      )}
-      {showAddChildGroup && (
-        <AddChildGroupModal
-          parentGroupPk={groupPk}
-          parentGroupName={groupName}
-          onClose={() => setShowAddChildGroup(false)}
-        />
-      )}
-      {showResignLeader && detail && (
-        <ResignLeaderModal
-          groupPk={groupPk}
-          groupName={groupName}
-          members={[...(detail.managers ?? []), ...(detail.members ?? [])]}
-          onClose={() => setShowResignLeader(false)}
-        />
-      )}
-      {showDisband && (
-        <DisbandGroupModal
-          groupPk={groupPk}
-          groupName={groupName}
-          onClose={() => setShowDisband(false)}
-          onSuccess={() => {
-            setShowDisband(false);
-            onClose();
-          }}
-        />
-      )}
-
-      <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-50">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {detail?.name ?? "Group Detail"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-            aria-label="Close panel"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          {isLoading && (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-8 rounded bg-gray-100 animate-pulse"
-                />
-              ))}
-            </div>
-          )}
-
-          {isError && (
-            <p className="text-red-500 text-sm">
-              Failed to load group details.
-            </p>
-          )}
-
-          {detail && (
-            <>
-              {/* Leader */}
-              {detail.leader && (
-                <section className="mb-4">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                    Leader
-                  </p>
-                  <MemberRow
-                    member={detail.leader}
-                    groupPk={groupPk}
-                    groupName={groupName}
-                    callerRole={callerRole}
-                    canAssignLeader={canAssignLeader}
-                    isLeader
-                  />
-                </section>
-              )}
-
-              {/* Managers */}
-              {detail.managers.length > 0 && (
-                <section className="mb-4">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                    Managers
-                  </p>
-                  {detail.managers.map((m) => (
-                    <MemberRow
-                      key={m.uuid}
-                      member={m}
-                      groupPk={groupPk}
-                      groupName={groupName}
-                      callerRole={callerRole}
-                      canAssignLeader={canAssignLeader}
-                      isManager
-                    />
-                  ))}
-                </section>
-              )}
-
-              {/* Members */}
-              <section className="mb-4">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Members
-                  </p>
-                  {(callerRole === "manager" || callerRole === "leader") && (
-                    <button
-                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                      onClick={() => setShowAddMember(true)}
-                    >
-                      + Add member
-                    </button>
-                  )}
-                </div>
-                {detail.members.length > 0 ? (
-                  detail.members.map((m) => (
-                    <MemberRow
-                      key={m.uuid}
-                      member={m}
-                      groupPk={groupPk}
-                      groupName={groupName}
-                      callerRole={callerRole}
-                      canAssignLeader={canAssignLeader}
-                    />
-                  ))
-                ) : (
-                  <p className="text-xs text-gray-400 italic">
-                    No regular members.
-                  </p>
-                )}
-              </section>
-
-              {/* Subgroups */}
-              {(detail.children.length > 0 || callerRole === "leader") && (
-                <section className="mb-4">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                    Subgroups
-                  </p>
-                  {detail.children.length > 0 ? (
-                    detail.children.map((child) => (
-                      <SubgroupRow
-                        key={child.pk}
-                        child={child}
-                        parentGroupName={groupName}
-                        parentGroupPk={groupPk}
-                        canDetach={callerRole === "leader" && canAssignLeader}
-                        onClose={onClose}
-                      />
-                    ))
-                  ) : (
-                    <p className="text-xs text-gray-400 italic">
-                      No subgroups.
-                    </p>
-                  )}
-                </section>
-              )}
-
-              {/* Leader-only actions */}
-              {callerRole === "leader" && (
-                <section className="space-y-2">
-                  <button
-                    className="w-full rounded border border-dashed border-indigo-300 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors"
-                    onClick={() => setShowCreateSubgroup(true)}
-                  >
-                    + Create subgroup
-                  </button>
-
-                  {canAssignLeader && (
-                    <button
-                      className="w-full rounded border border-dashed border-gray-300 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                      onClick={() => setShowAddChildGroup(true)}
-                    >
-                      + Connect existing group
-                    </button>
-                  )}
-
-                  {canAssignLeader && (
-                    <button
-                      className="w-full rounded border border-dashed border-red-300 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                      onClick={() => setShowResignLeader(true)}
-                    >
-                      Resign as leader
-                    </button>
-                  )}
-
-                  {callerRole === "leader" && canAssignLeader && (
-                    <button
-                      className="w-full rounded border border-dashed border-red-400 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
-                      onClick={() => setShowDisband(true)}
-                    >
-                      Disband group
-                    </button>
-                  )}
-                </section>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </>
-  );
-};
-
-export default GroupDetailPanel;
