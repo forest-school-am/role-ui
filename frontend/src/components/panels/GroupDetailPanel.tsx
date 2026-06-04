@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getGroup,
@@ -14,6 +14,7 @@ import {
   disbandGroup,
 } from "../../api/groups";
 import type { GroupRole, GroupMember, GroupChild } from "../../types";
+import { searchUsers, type UserSummary } from "../../api/users";
 import CrownIcon from "../CrownIcon";
 import { useNavigate } from "react-router-dom";
 
@@ -39,9 +40,23 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   groupName,
   onClose,
 }) => {
-  const [userPkInput, setUserPkInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSummary[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+
+  // Debounced search
+  useEffect(() => {
+    if (searchTerm.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      searchUsers(searchTerm).then(setSearchResults).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   const mutation = useMutation({
     mutationFn: (userPk: number) => addMember(groupName, userPk),
@@ -60,12 +75,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
-    const pk = parseInt(userPkInput.trim(), 10);
-    if (isNaN(pk) || pk <= 0) {
-      setLocalError("Please enter a valid numeric User PK.");
+    if (!selectedUser) {
+      setLocalError("Please search for and select a user.");
       return;
     }
-    mutation.mutate(pk);
+    mutation.mutate(selectedUser.pk);
   };
 
   return (
@@ -75,26 +89,62 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           Add Member
         </h3>
         <p className="text-xs text-gray-500 mb-3">
-          Enter the user's integer PK. Find user PKs on their profile page.
+          Search by username or display name to find the user.
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
+          <div className="relative">
             <label
               className="block text-xs font-medium text-gray-700 mb-1"
-              htmlFor="userPkInput"
+              htmlFor="userSearchInput"
             >
-              User PK
+              Search user
             </label>
-            <input
-              id="userPkInput"
-              type="number"
-              min="1"
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              value={userPkInput}
-              onChange={(e) => setUserPkInput(e.target.value)}
-              placeholder="e.g. 42"
-              autoFocus
-            />
+            {selectedUser ? (
+              <div className="flex items-center gap-2 rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5">
+                <span className="text-sm text-indigo-800 flex-1 min-w-0 truncate">
+                  {selectedUser.name} ({selectedUser.username})
+                </span>
+                <button
+                  type="button"
+                  className="text-xs text-indigo-500 hover:text-indigo-700 shrink-0"
+                  onClick={() => {
+                    setSelectedUser(null);
+                    setSearchTerm("");
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  id="userSearchInput"
+                  type="text"
+                  className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="e.g. alice"
+                  autoFocus
+                />
+                {searchResults.length > 0 && (
+                  <ul className="absolute z-10 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+                    {searchResults.map((u) => (
+                      <li
+                        key={u.pk}
+                        className="px-3 py-2 text-sm text-gray-800 cursor-pointer hover:bg-indigo-50"
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setSearchResults([]);
+                          setSearchTerm("");
+                        }}
+                      >
+                        {u.name} ({u.username})
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </div>
           {localError && <p className="text-xs text-red-600">{localError}</p>}
           <div className="flex gap-2 justify-end pt-1">

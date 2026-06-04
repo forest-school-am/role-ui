@@ -507,19 +507,11 @@ impl AuthentikClient {
             .await
             .map_err(|e| AppError::AuthentikError(format!("userinfo request failed: {e}")))?;
 
-        if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
-            let body = resp.text().await.unwrap_or_default();
-            tracing::warn!("userinfo rejected token: {body}");
-            return Err(AppError::Unauthorized);
-        }
-
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            tracing::warn!("userinfo error {status}: {body}");
-            return Err(AppError::AuthentikError(format!(
-                "userinfo returned {status}: {body}"
-            )));
+            tracing::warn!("userinfo non-success {status}: {body}");
+            return Err(AppError::Unauthorized);
         }
 
         #[derive(Deserialize)]

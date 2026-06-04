@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getGroups } from '../api/groups';
-import { searchUsers } from '../api/users';
-import type { UserSummary } from '../api/users';
-import type { GroupDetail } from '../types';
+import { searchAll, getSearchLinkGen } from '../api/search';
+import type { UserSearchResult, GroupSearchResult, SearchResult } from '../api/search';
 
 interface SearchBarProps {
   onNavigate: (url: string) => void;
@@ -15,7 +13,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Debounce user search query
+  // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query);
@@ -23,37 +21,41 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data: groupsData } = useQuery({
-    queryKey: ['groups'],
-    queryFn: getGroups,
-    staleTime: 30_000,
+  const { data: linkGenJs } = useQuery({
+    queryKey: ['search-link-gen'],
+    queryFn: getSearchLinkGen,
+    staleTime: Infinity,
   });
-  const allGroups: GroupDetail[] = groupsData ?? [];
 
-  const { data: usersData } = useQuery({
-    queryKey: ['userSearch', debouncedQuery],
-    queryFn: () => searchUsers(debouncedQuery),
+  const generateLink = useMemo<((obj: SearchResult) => string) | null>(() => {
+    if (!linkGenJs) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function('obj', `${linkGenJs}; return generateSearchLink(obj);`) as (obj: SearchResult) => string;
+    } catch {
+      return null;
+    }
+  }, [linkGenJs]);
+
+  const { data: searchData } = useQuery({
+    queryKey: ['search', debouncedQuery],
+    queryFn: () => searchAll(debouncedQuery),
     enabled: debouncedQuery.trim().length > 1,
     staleTime: 10_000,
   });
-  const userResults: UserSummary[] = usersData ?? [];
 
-  const groupResults: GroupDetail[] = query.trim()
-    ? allGroups.filter((g) => g.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
-    : [];
+  const userResults: UserSearchResult[] = (searchData ?? []).filter(
+    (r): r is UserSearchResult => r.__search_type === 'user',
+  );
+  const groupResults: GroupSearchResult[] = (searchData ?? []).filter(
+    (r): r is GroupSearchResult => r.__search_type === 'group',
+  );
 
   const hasResults = userResults.length > 0 || groupResults.length > 0;
 
-  const handleSelectUser = (user: UserSummary) => {
-    setQuery('');
-    setOpen(false);
-    onNavigate(`/users/${user.username}`);
-  };
-
-  const handleSelectGroup = (group: GroupDetail) => {
-    setQuery('');
-    setOpen(false);
-    onNavigate(`/structure?focus=${group.pk}`);
+  const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
+    const url = generateLink ? generateLink(result) : '#';
+    setQuery(''); setOpen(false); onNavigate(url);
   };
 
   return (
@@ -79,7 +81,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
               {userResults.map((u) => (
                 <li
                   key={u.uuid}
-                  onMouseDown={() => handleSelectUser(u)}
+                  onMouseDown={() => handleSelect(u)}
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer"
                 >
                   {u.name}{' '}
@@ -96,7 +98,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
               {groupResults.map((g) => (
                 <li
                   key={g.pk}
-                  onMouseDown={() => handleSelectGroup(g)}
+                  onMouseDown={() => handleSelect(g)}
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer"
                 >
                   {g.name}

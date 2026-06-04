@@ -22,23 +22,28 @@ interface DAGCanvasProps {
 }
 
 interface FocusControllerProps {
-  focusNodeId: string | null;
+  focusNodeId: string | null;    // now a group name
+  groups: GroupDetail[];
   onFocusConsumed?: () => void;
 }
 
 function FocusController({
   focusNodeId,
+  groups,
   onFocusConsumed,
 }: FocusControllerProps) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     if (!focusNodeId) return;
+    // Resolve name → pk
+    const group = groups.find(g => g.name === focusNodeId);
+    const nodeId = group?.pk ?? focusNodeId; // fallback to raw value
     const t = setTimeout(() => {
-      fitView({ nodes: [{ id: focusNodeId }], duration: 600, padding: 0.5 });
+      fitView({ nodes: [{ id: nodeId }], duration: 600, padding: 0.5 });
       onFocusConsumed?.();
     }, 100);
     return () => clearTimeout(t);
-  }, [focusNodeId, fitView, onFocusConsumed]);
+  }, [focusNodeId, groups, fitView, onFocusConsumed]);
   return null;
 }
 
@@ -458,6 +463,7 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
       >
         <FocusController
           focusNodeId={focusNodeId ?? null}
+          groups={groups}
           onFocusConsumed={onFocusConsumed}
         />
         <Background />

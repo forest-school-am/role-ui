@@ -9,16 +9,8 @@ import type { PanelState } from '../types';
 
 const StructurePage: React.FC = () => {
   const [panel, setPanel] = useState<PanelState>({ kind: 'none' });
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const focusGroupId = searchParams.get('focus');
-
-  const handleFocusConsumed = () => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete('focus');
-      return next;
-    }, { replace: true });
-  };
 
   const {
     data: groups,
@@ -62,7 +54,6 @@ const StructurePage: React.FC = () => {
         onGroupSelect={(pk, name) => setPanel({ kind: 'groupPreview', groupPk: pk, groupName: name })}
         onMemberClick={(username) => setPanel({ kind: 'userPreview', username })}
         focusNodeId={focusGroupId}
-        onFocusConsumed={handleFocusConsumed}
       />
 
       {panel.kind === 'userPreview' && (

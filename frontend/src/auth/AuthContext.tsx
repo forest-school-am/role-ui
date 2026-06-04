@@ -50,6 +50,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     sessionStorage.getItem('user_uuid'),
   );
 
+  // On mount: if the stored token has already expired, clear session and redirect.
+  useEffect(() => {
+    const expiresAt = sessionStorage.getItem('token_expires_at');
+    if (expiresAt && Date.now() > parseInt(expiresAt, 10)) {
+      sessionStorage.clear();
+      window.location.href = '/';
+    }
+  }, []);
+
   // If a new token arrives in sessionStorage from OAuthCallback, pick it up.
   useEffect(() => {
     const storedToken = sessionStorage.getItem('auth_token');

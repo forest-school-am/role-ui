@@ -164,6 +164,17 @@ const GroupPage: React.FC = () => {
           <div className="flex-none w-full md:w-64 space-y-6">
             <h1 className="text-2xl font-bold text-gray-900">{detail.name}</h1>
 
+            <button
+              className="flex items-center gap-1.5 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-100 transition-colors"
+              onClick={() => navigate(`/structure?focus=${encodeURIComponent(detail.name)}`)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="5" r="3"/><circle cx="19" cy="19" r="3"/><circle cx="5" cy="19" r="3"/>
+                <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="19" y2="16"/><line x1="12" y1="12" x2="5" y2="16"/>
+              </svg>
+              View in graph
+            </button>
+
             {/* Parent groups */}
             {detail.parent_pks.length > 0 && (
               <div>
@@ -187,26 +198,6 @@ const GroupPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Leader */}
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                Leader
-              </p>
-              {detail.leader ? (
-                <div className="flex items-center gap-1.5">
-                  <CrownIcon variant="gold" size="sm" />
-                  <Link
-                    to={`/users/${detail.leader.username}`}
-                    className="text-sm text-indigo-600 hover:underline"
-                  >
-                    {detail.leader.name}
-                  </Link>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400 italic">No leader</p>
-              )}
-            </div>
 
             {/* Stats */}
             <div>
@@ -263,6 +254,26 @@ const GroupPage: React.FC = () => {
 
           {/* Right — roster */}
           <div className="flex-1 space-y-6">
+            {/* Leader */}
+            <section>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                Leader
+              </p>
+              {detail.leader ? (
+                <div className="flex items-center gap-2 py-1.5 px-2">
+                  <CrownIcon variant="gold" size="sm" />
+                  <Link
+                    to={`/users/${detail.leader.username}`}
+                    className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
+                  >
+                    {detail.leader.name}
+                  </Link>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No leader</p>
+              )}
+            </section>
+
             {/* Managers */}
             {detail.managers.length > 0 && (
               <section>
