@@ -102,7 +102,7 @@ const UserCard: React.FC<UserCardProps> = ({ user }) => {
                 key={gm.group_pk}
                 groupName={gm.group_name}
                 role={gm.role}
-                onClick={() => navigate(`/structure?focus=${gm.group_pk}`)}
+                onClick={() => navigate(`/groups/${encodeURIComponent(gm.group_name)}`)}
               />
             ))}
           </div>

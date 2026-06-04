@@ -356,10 +356,10 @@ const GroupPage: React.FC = () => {
               {detail.children.length > 0 ? (
                 <div className="space-y-1">
                   {detail.children.map((child) => (
-                    <div key={child.pk} className="py-1.5 px-2">
+                    <div key={child.pk} className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded">
                       <Link
                         to={'/groups/' + encodeURIComponent(child.name)}
-                        className="text-sm text-indigo-600 hover:underline"
+                        className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
                       >
                         {child.name}
                       </Link>
