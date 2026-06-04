@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { User } from '../types';
 import GroupTag from './GroupTag';
 
@@ -23,6 +24,7 @@ function socialHref(type: string, address: string): string | undefined {
 }
 
 const UserCard: React.FC<UserCardProps> = ({ user }) => {
+  const navigate = useNavigate();
   const sortedGroups = [...user.groups].sort((a, b) =>
     a.group_name.localeCompare(b.group_name),
   );
@@ -100,6 +102,7 @@ const UserCard: React.FC<UserCardProps> = ({ user }) => {
                 key={gm.group_pk}
                 groupName={gm.group_name}
                 role={gm.role}
+                onClick={() => navigate(`/structure?focus=${gm.group_pk}`)}
               />
             ))}
           </div>

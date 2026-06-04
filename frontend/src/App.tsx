@@ -10,6 +10,8 @@ import { useAuth } from './auth/useAuth';
 import OAuthCallback from './auth/OAuthCallback';
 import PersonalPage from './pages/PersonalPage';
 import StructurePage from './pages/StructurePage';
+import GroupPage from './pages/GroupPage';
+import AppShell from './layouts/AppShell';
 
 // ---------------------------------------------------------------------------
 // Triggers login redirect when no token is present
@@ -50,31 +52,19 @@ const App: React.FC = () => {
           {/* Public route — OIDC callback */}
           <Route path="/callback" element={<OAuthCallback />} />
 
-          {/* Protected routes */}
+          {/* Protected routes — wrapped in AppShell layout */}
           <Route
-            path="/me"
             element={
               <ProtectedRoute>
-                <PersonalPage />
+                <AppShell />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/users/:userUuid"
-            element={
-              <ProtectedRoute>
-                <PersonalPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/structure"
-            element={
-              <ProtectedRoute>
-                <StructurePage />
-              </ProtectedRoute>
-            }
-          />
+          >
+            <Route path="/me" element={<PersonalPage />} />
+            <Route path="/users/:username" element={<PersonalPage />} />
+            <Route path="/structure" element={<StructurePage />} />
+            <Route path="/groups/:name" element={<GroupPage />} />
+          </Route>
 
           {/* Default: redirect to /me (will trigger login if no token) */}
           <Route path="/" element={<Navigate to="/me" replace />} />

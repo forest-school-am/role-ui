@@ -5,6 +5,7 @@ pub struct Config {
     pub authentik_base_url: String,
     pub authentik_api_token: String,
     pub backend_port: u16,
+    pub static_dir: std::path::PathBuf,
 }
 
 impl Config {
@@ -18,6 +19,9 @@ impl Config {
                 .context("BACKEND_PORT must be set")?
                 .parse::<u16>()
                 .context("BACKEND_PORT must be a valid port number")?,
+            static_dir: std::env::var("STATIC_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("../frontend/dist")),
         })
     }
 }

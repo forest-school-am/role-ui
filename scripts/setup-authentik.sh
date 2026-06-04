@@ -136,15 +136,28 @@ else
         "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/") \
         || error "Failed to create API token. Check that your bootstrap token has admin permissions."
 
-    # Retrieve the actual key (requires a separate view-key call)
+    # Retrieve the actual key (requires a separate view-key call — GET in authentik 2026.5+)
     API_TOKEN=$(curl -sf \
-        -X POST \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
         "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/${TOKEN_IDENTIFIER}/view_key/" \
         | jq -r '.key') \
         || error "Failed to retrieve API token key."
 
     success "Created API token '${TOKEN_IDENTIFIER}'."
+
+    # Grant service account admin rights via authentik Admins group.
+    admins_group_pk=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/core/groups/?name=authentik+Admins" \
+        | jq -r '.results[0].pk') || true
+    if [[ -n "$admins_group_pk" ]]; then
+        curl -sf -X POST \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"pk\": ${user_pk}}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/core/groups/${admins_group_pk}/add_user/" >/dev/null || true
+        success "Added '${SERVICE_ACCOUNT_NAME}' to authentik Admins group."
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -165,11 +178,88 @@ else
     echo "AUTHENTIK_API_TOKEN=${API_TOKEN}" > "${ENV_FILE}"
 fi
 
+# ---------------------------------------------------------------------------
+# Step 7 — Create OIDC provider + application (idempotent)
+# ---------------------------------------------------------------------------
+
+OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-roleui}"
+OIDC_APP_SLUG="${OIDC_APP_SLUG:-roleui}"
+OIDC_REDIRECT_URI="${OIDC_REDIRECT_URI:-http://localhost:8080/callback}"
+
+info "Checking for existing OIDC provider '${OIDC_CLIENT_ID}' ..."
+provider_pk=$(curl -sf \
+    -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+    "${AUTHENTIK_BASE_URL}/api/v3/providers/oauth2/?client_id=${OIDC_CLIENT_ID}" \
+    | jq -r '.results[0].pk // empty') || true
+
+if [[ -n "$provider_pk" ]]; then
+    success "OIDC provider already exists (pk=${provider_pk})."
+else
+    info "Fetching authorization and invalidation flow UUIDs ..."
+    auth_flow=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?slug=default-provider-authorization-implicit-consent" \
+        | jq -r '.results[0].pk') || error "Failed to fetch authorization flow."
+    inval_flow=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=invalidation" \
+        | jq -r '.results[0].pk') || error "Failed to fetch invalidation flow."
+
+    info "Fetching openid scope mapping UUID ..."
+    openid_mapping=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/provider/scope/?scope_name=openid" \
+        | jq -r '.results[0].pk') || error "Failed to fetch openid scope mapping."
+
+    info "Creating OIDC provider '${OIDC_CLIENT_ID}' ..."
+    provider_pk=$(curl -sf \
+        -X POST \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"name\": \"${OIDC_CLIENT_ID}\",
+            \"client_id\": \"${OIDC_CLIENT_ID}\",
+            \"client_type\": \"public\",
+            \"redirect_uris\": [{\"matching_mode\": \"strict\", \"url\": \"${OIDC_REDIRECT_URI}\"}],
+            \"authorization_flow\": \"${auth_flow}\",
+            \"invalidation_flow\": \"${inval_flow}\",
+            \"grant_types\": [\"authorization_code\", \"refresh_token\"],
+            \"property_mappings\": [\"${openid_mapping}\"],
+            \"sub_mode\": \"user_uuid\",
+            \"signing_key\": null,
+            \"access_token_validity\": \"hours=1\"
+        }" \
+        "${AUTHENTIK_BASE_URL}/api/v3/providers/oauth2/" \
+        | jq -r '.pk') || error "Failed to create OIDC provider."
+    success "Created OIDC provider (pk=${provider_pk})."
+fi
+
+info "Checking for existing application '${OIDC_APP_SLUG}' ..."
+app_exists=$(curl -sf \
+    -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+    "${AUTHENTIK_BASE_URL}/api/v3/core/applications/${OIDC_APP_SLUG}/" \
+    | jq -r '.slug // empty') || true
+
+if [[ -n "$app_exists" ]]; then
+    success "Application '${OIDC_APP_SLUG}' already exists."
+else
+    info "Creating application '${OIDC_APP_SLUG}' ..."
+    curl -sf \
+        -X POST \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"Role UI\", \"slug\": \"${OIDC_APP_SLUG}\", \"provider\": ${provider_pk}}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/core/applications/" >/dev/null \
+        || error "Failed to create application."
+    success "Created application '${OIDC_APP_SLUG}'."
+fi
+
 echo ""
 echo "================================================================"
 echo " Setup complete!"
 echo ""
 echo " AUTHENTIK_API_TOKEN has been written to ${ENV_FILE}."
+echo " OIDC app '${OIDC_APP_SLUG}' is ready (redirect: ${OIDC_REDIRECT_URI})."
 echo " Restart the Rust backend to pick up the new token."
 echo "================================================================"
 echo ""

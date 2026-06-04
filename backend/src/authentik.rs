@@ -1,9 +1,11 @@
 use crate::error::AppError;
 use crate::models::GroupRole;
 use anyhow::Context;
+use futures::future::join_all;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use urlencoding::encode as urlencode;
 
 // ---------------------------------------------------------------------------
 // Raw authentik API structs
@@ -165,6 +167,36 @@ impl AuthentikClient {
     // User methods
     // ------------------------------------------------------------------
 
+    /// Fetch all non-service-account users (type = "internal" or "external").
+    /// Handles pagination — fetches all pages.
+    pub async fn get_all_real_users(&self) -> Result<Vec<AuthentikUser>, AppError> {
+        let base = format!(
+            "{}/api/v3/core/users/",
+            self.base_url.trim_end_matches('/')
+        );
+
+        // Fetch internal users.
+        let internal = self
+            .get_all_pages::<AuthentikUser>(&base, "&type=internal")
+            .await?;
+
+        // Fetch external users.
+        let external = self
+            .get_all_pages::<AuthentikUser>(&base, "&type=external")
+            .await?;
+
+        // Merge and deduplicate by pk.
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        let mut users: Vec<AuthentikUser> = Vec::new();
+        for u in internal.into_iter().chain(external.into_iter()) {
+            if seen.insert(u.pk) {
+                users.push(u);
+            }
+        }
+
+        Ok(users)
+    }
+
     /// Fetch a user by their UUID (string UUID, not integer PK).
     pub async fn get_user_by_uuid(&self, uuid: &str) -> Result<AuthentikUser, AppError> {
         let url = format!(
@@ -207,25 +239,131 @@ impl AuthentikClient {
     }
 
     /// Batch-fetch users by a slice of integer PKs.
-    /// Authentik supports `?pk__in=1,2,3` filtering.
+    /// Fetches each user individually in parallel using GET /api/v3/core/users/{pk}/.
     pub async fn get_users_by_pks(&self, pks: &[i64]) -> Result<Vec<AuthentikUser>, AppError> {
         if pks.is_empty() {
             return Ok(Vec::new());
         }
 
-        let pk_list = pks
-            .iter()
-            .map(|pk| pk.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+        let futures = pks.iter().map(|&pk| self.get_user_by_pk(pk));
+        let results = join_all(futures).await;
 
-        let base = format!(
-            "{}/api/v3/core/users/",
+        let mut users = Vec::with_capacity(pks.len());
+        for result in results {
+            match result {
+                Ok(user) => users.push(user),
+                Err(AppError::NotFound(_)) => {
+                    // Skip users that no longer exist in authentik
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(users)
+    }
+
+    /// Fetch a user by their username (exact match).
+    pub async fn get_user_by_username(&self, username: &str) -> Result<AuthentikUser, AppError> {
+        let encoded = urlencode(username);
+        let url = format!(
+            "{}/api/v3/core/users/?username={encoded}",
             self.base_url.trim_end_matches('/')
         );
-        // Use get_all_pages with pk__in as extra query param
-        let extra = format!("&pk__in={pk_list}");
-        self.get_all_pages::<AuthentikUser>(&base, &extra).await
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("failed to request user by username from authentik")
+            .map_err(AppError::Internal)?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AppError::AuthentikError(format!(
+                "authentik returned {status}: {body}"
+            )));
+        }
+
+        let page: PaginatedResult<AuthentikUser> = resp
+            .json()
+            .await
+            .context("failed to decode user list response")
+            .map_err(AppError::Internal)?;
+
+        page.results
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::NotFound(format!("user with username '{username}' not found")))
+    }
+
+    /// Fetch a group by its name (exact match).
+    pub async fn get_group_by_name(&self, name: &str) -> Result<AuthentikGroup, AppError> {
+        let encoded = urlencode(name);
+        let url = format!(
+            "{}/api/v3/core/groups/?name={encoded}&include_parents=true",
+            self.base_url.trim_end_matches('/')
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("failed to request group by name from authentik")
+            .map_err(AppError::Internal)?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AppError::AuthentikError(format!(
+                "authentik returned {status}: {body}"
+            )));
+        }
+
+        let page: PaginatedResult<AuthentikGroup> = resp
+            .json()
+            .await
+            .context("failed to decode group list response")
+            .map_err(AppError::Internal)?;
+
+        page.results
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::NotFound(format!("group with name '{name}' not found")))
+    }
+
+    /// Search users by a term (username/name/email prefix search).
+    pub async fn search_users(&self, term: &str, limit: usize) -> Result<Vec<AuthentikUser>, AppError> {
+        let encoded = urlencode(term);
+        let url = format!(
+            "{}/api/v3/core/users/?search={encoded}&page_size={limit}&page=1",
+            self.base_url.trim_end_matches('/')
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("failed to send user search request to authentik")
+            .map_err(AppError::Internal)?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AppError::AuthentikError(format!(
+                "authentik returned {status}: {body}"
+            )));
+        }
+
+        let page: PaginatedResult<AuthentikUser> = resp
+            .json()
+            .await
+            .context("failed to decode user search response")
+            .map_err(AppError::Internal)?;
+
+        Ok(page.results)
     }
 
     // ------------------------------------------------------------------
@@ -318,7 +456,7 @@ impl AuthentikClient {
             "{}/api/v3/core/groups/",
             self.base_url.trim_end_matches('/')
         );
-        let extra = format!("&members_direct={user_pk}&include_parents=true");
+        let extra = format!("&members_by_pk={user_pk}&include_parents=true");
         self.get_all_pages::<AuthentikGroup>(&base, &extra).await
     }
 
@@ -397,6 +535,34 @@ impl AuthentikClient {
         Ok(info.sub)
     }
 
+    /// DELETE a group by its UUID pk.
+    pub async fn delete_group(&self, pk: &str) -> Result<(), AppError> {
+        let url = format!(
+            "{}/api/v3/core/groups/{pk}/",
+            self.base_url.trim_end_matches('/')
+        );
+
+        let resp = self
+            .client
+            .delete(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("failed to send DELETE request to authentik")
+            .map_err(AppError::Internal)?;
+
+        match resp.status() {
+            StatusCode::NO_CONTENT => Ok(()),
+            StatusCode::NOT_FOUND => Err(AppError::NotFound(format!("group {pk} not found"))),
+            status => {
+                let body_text = resp.text().await.unwrap_or_default();
+                Err(AppError::AuthentikError(format!(
+                    "authentik DELETE returned {status}: {body_text}"
+                )))
+            }
+        }
+    }
+
     /// Remove a user from a group via authentik's dedicated endpoint.
     pub async fn remove_user_from_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
         let url = format!(
@@ -458,22 +624,4 @@ pub fn resolve_role(group: &AuthentikGroup, user_uuid: &str, _user_pk: i64) -> G
     }
 
     GroupRole::Member
-}
-
-/// Returns true if the user is a Leader in any direct parent of `group`.
-/// Only one level of inheritance (design doc §6.8).
-pub fn is_leader_of_any_parent(
-    group: &AuthentikGroup,
-    all_groups: &[AuthentikGroup],
-    user_uuid: &str,
-    user_pk: i64,
-) -> bool {
-    for parent_pk in &group.parents {
-        if let Some(parent) = all_groups.iter().find(|g| &g.pk == parent_pk) {
-            if resolve_role(parent, user_uuid, user_pk) == GroupRole::Leader {
-                return true;
-            }
-        }
-    }
-    false
 }

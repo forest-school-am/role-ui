@@ -25,4 +25,12 @@ apiClient.interceptors.response.use(
   },
 );
 
+export function extractApiError(err: unknown): string {
+  if (axios.isAxiosError(err) && err.response?.data?.error) {
+    return err.response.data.error as string;
+  }
+  if (err instanceof Error) return err.message;
+  return 'An unexpected error occurred';
+}
+
 export default apiClient;

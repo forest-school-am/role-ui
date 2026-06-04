@@ -8,72 +8,113 @@ export async function getGroups(): Promise<GroupDetail[]> {
   return response.data.groups;
 }
 
-export async function getGroup(pk: string): Promise<GroupDetail> {
-  const response = await apiClient.get<GroupDetail>(`/api/groups/${pk}`);
+export async function getGroup(groupName: string): Promise<GroupDetail> {
+  const response = await apiClient.get<GroupDetail>(`/api/groups/${encodeURIComponent(groupName)}`);
   return response.data;
 }
 
 export async function addMember(
-  groupPk: string,
+  groupName: string,
   userPk: number,
 ): Promise<MutationSuccess> {
   const response = await apiClient.post<MutationSuccess>(
-    `/api/groups/${groupPk}/members`,
+    `/api/groups/${encodeURIComponent(groupName)}/members`,
     { user_pk: userPk },
   );
   return response.data;
 }
 
 export async function removeMember(
-  groupPk: string,
+  groupName: string,
   userPk: number,
 ): Promise<MutationSuccess> {
   const response = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${groupPk}/members/${userPk}`,
+    `/api/groups/${encodeURIComponent(groupName)}/members/${userPk}`,
   );
   return response.data;
 }
 
 export async function addManager(
-  groupPk: string,
+  groupName: string,
   userPk: number,
 ): Promise<MutationSuccess> {
   const response = await apiClient.post<MutationSuccess>(
-    `/api/groups/${groupPk}/managers`,
+    `/api/groups/${encodeURIComponent(groupName)}/managers`,
     { user_pk: userPk },
   );
   return response.data;
 }
 
 export async function removeManager(
-  groupPk: string,
+  groupName: string,
   userPk: number,
 ): Promise<MutationSuccess> {
   const response = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${groupPk}/managers/${userPk}`,
+    `/api/groups/${encodeURIComponent(groupName)}/managers/${userPk}`,
   );
   return response.data;
 }
 
 export async function assignLeader(
-  groupPk: string,
+  groupName: string,
   userPk: number,
 ): Promise<MutationSuccess> {
   const response = await apiClient.put<MutationSuccess>(
-    `/api/groups/${groupPk}/leader`,
+    `/api/groups/${encodeURIComponent(groupName)}/leader`,
     { user_pk: userPk },
   );
   return response.data;
 }
 
 export async function createSubgroup(
-  groupPk: string,
+  groupName: string,
   name: string,
 ): Promise<{ pk: string; name: string; leader_uuid: string }> {
   const response = await apiClient.post<{
     pk: string;
     name: string;
     leader_uuid: string;
-  }>(`/api/groups/${groupPk}/subgroups`, { name });
+  }>(`/api/groups/${encodeURIComponent(groupName)}/subgroups`, { name });
   return response.data;
+}
+
+export async function addChildGroup(parentGroupName: string, childGroupName: string): Promise<MutationSuccess> {
+  const { data } = await apiClient.post<MutationSuccess>(
+    `/api/groups/${encodeURIComponent(parentGroupName)}/children`,
+    { group_name: childGroupName },
+  );
+  return data;
+}
+
+export async function resignLeader(groupName: string, successorPk: number): Promise<MutationSuccess> {
+  const { data } = await apiClient.post<MutationSuccess>(
+    `/api/groups/${encodeURIComponent(groupName)}/leader/resign`,
+    { successor_pk: successorPk },
+  );
+  return data;
+}
+
+export async function detachChildGroup(
+  parentGroupName: string,
+  childGroupName: string,
+): Promise<MutationSuccess> {
+  const { data } = await apiClient.delete<MutationSuccess>(
+    `/api/groups/${encodeURIComponent(parentGroupName)}/children/${encodeURIComponent(childGroupName)}`,
+  );
+  return data;
+}
+
+export async function disbandGroup(groupName: string): Promise<MutationSuccess> {
+  const { data } = await apiClient.delete<MutationSuccess>(
+    `/api/groups/${encodeURIComponent(groupName)}`,
+  );
+  return data;
+}
+
+export async function setGroupColor(groupName: string, color: string): Promise<MutationSuccess> {
+  const { data } = await apiClient.put<MutationSuccess>(
+    `/api/groups/${encodeURIComponent(groupName)}/color`,
+    { color },
+  );
+  return data;
 }

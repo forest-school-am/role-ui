@@ -41,6 +41,8 @@ export interface GroupSummary {
   leader_uuid: string | null;  // UUID
   manager_uuids: string[];     // UUID[]
   member_count: number;
+  color?: string;
+  is_virtual?: boolean;
 }
 
 // Full group list response
@@ -58,6 +60,13 @@ export interface GroupMember {
   is_active: boolean;
 }
 
+// A child group entry inside a group detail response
+export interface GroupChild {
+  pk: string;
+  name: string;
+  is_virtual?: boolean;
+}
+
 // Full group detail (response from GET /api/groups/:groupPk)
 export interface GroupDetail {
   pk: string;            // UUID
@@ -67,6 +76,9 @@ export interface GroupDetail {
   leader: GroupMember | null;
   managers: GroupMember[];
   members: GroupMember[];
+  children: GroupChild[];
+  color?: string;
+  is_virtual?: boolean;
 }
 
 // Mutation success response (used for add/remove member, manager, leader)
@@ -84,8 +96,16 @@ export interface GroupNodeData extends Record<string, unknown> {
   groupPk: string;
   groupName: string;
   detail: GroupDetail | null;
-  onSelect: (groupPk: string) => void;
+  onSelect: (groupPk: string, groupName: string) => void;
+  onMemberClick: (username: string) => void;
+  isVirtual?: boolean;
 }
+
+// Discriminated union for the active panel state in StructurePage
+export type PanelState =
+  | { kind: 'none' }
+  | { kind: 'groupPreview'; groupPk: string; groupName: string }
+  | { kind: 'userPreview'; username: string };
 
 // CrownIcon variant
 export type CrownVariant = "gold" | "silver";

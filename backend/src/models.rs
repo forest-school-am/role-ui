@@ -74,6 +74,8 @@ pub struct GroupSummary {
     pub leader_uuid: Option<String>,
     pub manager_uuids: Vec<String>,
     pub member_count: usize,
+    pub color: Option<String>,
+    pub is_virtual: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +93,17 @@ pub struct GroupMember {
 }
 
 // ---------------------------------------------------------------------------
+// GroupChild — compact child-group entry inside a group detail response
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupChild {
+    pub pk: String,
+    pub name: String,
+    pub is_virtual: bool,
+}
+
+// ---------------------------------------------------------------------------
 // GroupDetail — full group detail response
 // ---------------------------------------------------------------------------
 
@@ -103,6 +116,22 @@ pub struct GroupDetail {
     pub leader: Option<GroupMember>,
     pub managers: Vec<GroupMember>,
     pub members: Vec<GroupMember>,
+    pub children: Vec<GroupChild>,
+    pub color: Option<String>,
+    pub is_virtual: bool,
+}
+
+// ---------------------------------------------------------------------------
+// UserSummary — lightweight user search result
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UserSummary {
+    pub pk: i64,
+    pub uuid: String,
+    pub username: String,
+    pub name: String,
+    pub social: Vec<SocialAccount>,
 }
 
 // ---------------------------------------------------------------------------

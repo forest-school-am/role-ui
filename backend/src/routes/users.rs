@@ -1,21 +1,32 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
+use serde::Deserialize;
 
 use crate::{
     auth::AuthenticatedUser,
     authentik::{resolve_role, AuthentikUser},
     error::AppError,
-    models::{GroupMembership, SocialAccount, SshKey, User},
+    models::{GroupMembership, SocialAccount, SshKey, User, UserSummary},
     AppState,
 };
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/users/me", get(get_me))
-        .route("/api/users/:user_uuid", get(get_user))
+        .route("/api/users", get(search_users))
+        .route("/api/users/:username", get(get_user))
+}
+
+// ---------------------------------------------------------------------------
+// Query param structs
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct UsersQuery {
+    search: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +138,18 @@ async fn build_user_response(
     })
 }
 
+/// Build a UserSummary from an AuthentikUser.
+fn to_user_summary(auth_user: AuthentikUser) -> UserSummary {
+    let social = build_social(&auth_user);
+    UserSummary {
+        pk: auth_user.pk,
+        uuid: auth_user.uuid.clone(),
+        username: auth_user.username.clone(),
+        name: auth_user.name.clone(),
+        social,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -139,12 +162,30 @@ async fn get_me(
     Ok(Json(user))
 }
 
+/// GET /api/users?search=term — search users by term, returns Vec<UserSummary>.
+/// If search is absent or empty, returns empty array.
+async fn search_users(
+    State(state): State<AppState>,
+    _caller: AuthenticatedUser,
+    Query(params): Query<UsersQuery>,
+) -> Result<Json<Vec<UserSummary>>, AppError> {
+    let term = match params.search.as_deref() {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => return Ok(Json(vec![])),
+    };
+
+    let results = state.authentik.search_users(&term, 20).await?;
+    let summaries: Vec<UserSummary> = results.into_iter().map(to_user_summary).collect();
+    Ok(Json(summaries))
+}
+
+/// GET /api/users/:username — full profile for a user by username.
 async fn get_user(
     State(state): State<AppState>,
     _caller: AuthenticatedUser,
-    Path(user_uuid): Path<String>,
+    Path(username): Path<String>,
 ) -> Result<Json<User>, AppError> {
-    let auth_user = state.authentik.get_user_by_uuid(&user_uuid).await?;
+    let auth_user = state.authentik.get_user_by_username(&username).await?;
     let user = build_user_response(&state, auth_user.pk, &auth_user.uuid).await?;
     Ok(Json(user))
 }

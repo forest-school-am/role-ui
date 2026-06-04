@@ -164,6 +164,13 @@ ensure_user() {
 
   ok "Created user '$username' pk=$pk"
 
+  # Set password
+  curl -s -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"password": "Test1234!"}' \
+    "$API/core/users/$pk/set_password/" >/dev/null
+
   # Set telegram attribute if provided
   if [[ -n "$telegram" ]]; then
     curl -s -X PATCH \
