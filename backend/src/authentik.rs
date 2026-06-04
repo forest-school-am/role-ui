@@ -61,13 +61,12 @@ pub struct AuthentikClient {
 
 impl AuthentikClient {
     pub fn new(base_url: String, api_token: String) -> Self {
-        let client = Client::builder()
-            .build()
-            .expect("failed to build reqwest client");
         Self {
             base_url,
             api_token,
-            client,
+            client: Client::builder()
+                .build()
+                .expect("failed to build reqwest client"),
         }
     }
 
@@ -81,6 +80,40 @@ impl AuthentikClient {
 
     fn auth_header(&self) -> String {
         format!("Bearer {}", self.api_token)
+    }
+
+    /// GET a paginated list endpoint and return the first result, or NotFound.
+    async fn fetch_first<T>(&self, url: &str, not_found_msg: &str) -> Result<T, AppError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        let resp = self
+            .client
+            .get(url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("failed to send request to authentik")
+            .map_err(AppError::Internal)?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AppError::AuthentikError(format!(
+                "authentik returned {status}: {body}"
+            )));
+        }
+
+        let page: PaginatedResult<T> = resp
+            .json()
+            .await
+            .context("failed to decode authentik paginated response")
+            .map_err(AppError::Internal)?;
+
+        page.results
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::NotFound(not_found_msg.to_string()))
     }
 
     /// GET a single authentik resource; maps 404 to AppError::NotFound.
@@ -150,11 +183,13 @@ impl AuthentikClient {
                 .context("failed to decode authentik paginated response")
                 .map_err(AppError::Internal)?;
 
-            let fetched = page_data.results.len() as u64;
             results.extend(page_data.results);
 
             // pagination.next is the next page number; 0 means no more pages.
-            if page_data.pagination.next == 0 || fetched == 0 {
+            if page_data.pagination.next == 0 {
+                break;
+            }
+            if results.is_empty() {
                 break;
             }
             page += 1;
@@ -185,14 +220,7 @@ impl AuthentikClient {
             .get_all_pages::<AuthentikUser>(&base, "&type=external")
             .await?;
 
-        // Merge and deduplicate by pk.
-        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
-        let mut users: Vec<AuthentikUser> = Vec::new();
-        for u in internal.into_iter().chain(external.into_iter()) {
-            if seen.insert(u.pk) {
-                users.push(u);
-            }
-        }
+        let users: Vec<AuthentikUser> = internal.into_iter().chain(external).collect();
 
         Ok(users)
     }
@@ -203,33 +231,8 @@ impl AuthentikClient {
             "{}/api/v3/core/users/?uuid={uuid}",
             self.base_url.trim_end_matches('/')
         );
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", self.auth_header())
-            .send()
+        self.fetch_first(&url, &format!("user with UUID {uuid} not found"))
             .await
-            .context("failed to request user by UUID from authentik")
-            .map_err(AppError::Internal)?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(AppError::AuthentikError(format!(
-                "authentik returned {status}: {body}"
-            )));
-        }
-
-        let page: PaginatedResult<AuthentikUser> = resp
-            .json()
-            .await
-            .context("failed to decode user list response")
-            .map_err(AppError::Internal)?;
-
-        page.results
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::NotFound(format!("user with UUID {uuid} not found")))
     }
 
     /// Fetch a user by their integer PK.
@@ -268,33 +271,8 @@ impl AuthentikClient {
             "{}/api/v3/core/users/?username={encoded}",
             self.base_url.trim_end_matches('/')
         );
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", self.auth_header())
-            .send()
+        self.fetch_first(&url, &format!("user with username '{username}' not found"))
             .await
-            .context("failed to request user by username from authentik")
-            .map_err(AppError::Internal)?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(AppError::AuthentikError(format!(
-                "authentik returned {status}: {body}"
-            )));
-        }
-
-        let page: PaginatedResult<AuthentikUser> = resp
-            .json()
-            .await
-            .context("failed to decode user list response")
-            .map_err(AppError::Internal)?;
-
-        page.results
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::NotFound(format!("user with username '{username}' not found")))
     }
 
     /// Fetch a group by its name (exact match).
@@ -304,33 +282,8 @@ impl AuthentikClient {
             "{}/api/v3/core/groups/?name={encoded}&include_parents=true",
             self.base_url.trim_end_matches('/')
         );
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", self.auth_header())
-            .send()
+        self.fetch_first(&url, &format!("group with name '{name}' not found"))
             .await
-            .context("failed to request group by name from authentik")
-            .map_err(AppError::Internal)?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(AppError::AuthentikError(format!(
-                "authentik returned {status}: {body}"
-            )));
-        }
-
-        let page: PaginatedResult<AuthentikGroup> = resp
-            .json()
-            .await
-            .context("failed to decode group list response")
-            .map_err(AppError::Internal)?;
-
-        page.results
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::NotFound(format!("group with name '{name}' not found")))
     }
 
     /// Search users by a term (username/name/email prefix search).
@@ -460,15 +413,13 @@ impl AuthentikClient {
         self.get_all_pages::<AuthentikGroup>(&base, &extra).await
     }
 
-    /// Add a user to a group via authentik's dedicated endpoint.
-    pub async fn add_user_to_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
+    /// POST an add/remove user action to a group endpoint.
+    async fn post_group_user_action(&self, group_pk: &str, user_pk: i64, action: &str) -> Result<(), AppError> {
         let url = format!(
-            "{}/api/v3/core/groups/{group_pk}/add_user/",
+            "{}/api/v3/core/groups/{group_pk}/{action}/",
             self.base_url.trim_end_matches('/')
         );
-
         let body = serde_json::json!({ "pk": user_pk });
-
         let resp = self
             .client
             .post(&url)
@@ -477,18 +428,22 @@ impl AuthentikClient {
             .json(&body)
             .send()
             .await
-            .context("failed to send add_user request to authentik")
+            .context("failed to send group user action to authentik")
             .map_err(AppError::Internal)?;
 
         if resp.status() == StatusCode::NO_CONTENT || resp.status().is_success() {
             return Ok(());
         }
-
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
         Err(AppError::AuthentikError(format!(
-            "authentik add_user returned {status}: {body_text}"
+            "authentik {action} returned {status}: {body_text}"
         )))
+    }
+
+    /// Add a user to a group via authentik's dedicated endpoint.
+    pub async fn add_user_to_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
+        self.post_group_user_action(group_pk, user_pk, "add_user").await
     }
 
     /// Validate a user-supplied bearer token via the userinfo endpoint.
@@ -557,33 +512,7 @@ impl AuthentikClient {
 
     /// Remove a user from a group via authentik's dedicated endpoint.
     pub async fn remove_user_from_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
-        let url = format!(
-            "{}/api/v3/core/groups/{group_pk}/remove_user/",
-            self.base_url.trim_end_matches('/')
-        );
-
-        let body = serde_json::json!({ "pk": user_pk });
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", self.auth_header())
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("failed to send remove_user request to authentik")
-            .map_err(AppError::Internal)?;
-
-        if resp.status() == StatusCode::NO_CONTENT || resp.status().is_success() {
-            return Ok(());
-        }
-
-        let status = resp.status();
-        let body_text = resp.text().await.unwrap_or_default();
-        Err(AppError::AuthentikError(format!(
-            "authentik remove_user returned {status}: {body_text}"
-        )))
+        self.post_group_user_action(group_pk, user_pk, "remove_user").await
     }
 }
 

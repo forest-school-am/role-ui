@@ -59,15 +59,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // If a new token arrives in sessionStorage from OAuthCallback, pick it up.
-  useEffect(() => {
-    const storedToken = sessionStorage.getItem('auth_token');
-    const storedUuid = sessionStorage.getItem('user_uuid');
-    if (storedToken !== token) setToken(storedToken);
-    if (storedUuid !== userUuid) setUserUuid(storedUuid);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const login = async () => {
     const baseUrl = import.meta.env.VITE_AUTHENTIK_BASE_URL as string;
     const clientId = import.meta.env.VITE_OIDC_CLIENT_ID as string;

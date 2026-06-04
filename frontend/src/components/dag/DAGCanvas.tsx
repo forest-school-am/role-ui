@@ -63,11 +63,6 @@ const VIRTUAL_NODE_WIDTH = 220;
 const VIRTUAL_GAP = 60;
 const VIRTUAL_Y_OFFSET = 120;
 
-const VIRTUAL_X_POSITIONS: Record<string, number> = {
-  "virtual:unassigned": 0,
-  "virtual:suspended": VIRTUAL_NODE_WIDTH + VIRTUAL_GAP,
-};
-
 function computeLayout(
   groups: GroupDetail[],
   onGroupSelect: (pk: string, name: string) => void,
@@ -399,20 +394,20 @@ function computeLayout(
   // Position virtual nodes below the real DAG, side by side
   const virtualY = maxY + VIRTUAL_Y_OFFSET;
 
-  for (const g of virtualGroups) {
-    const virtualX = VIRTUAL_X_POSITIONS[g.pk] ?? 0;
+  for (const vg of virtualGroups) {
+    const virtualX = virtualGroups.indexOf(vg) * (VIRTUAL_NODE_WIDTH + VIRTUAL_GAP);
 
     const data: GroupNodeData = {
-      groupPk: g.pk,
-      groupName: g.name,
-      detail: { ...g, color: g.color ?? "#e5e7eb" },
+      groupPk: vg.pk,
+      groupName: vg.name,
+      detail: { ...vg, color: vg.color ?? "#e5e7eb" },
       onSelect: onGroupSelect,
       onMemberClick,
       isVirtual: true,
     };
 
     nodes.push({
-      id: g.pk,
+      id: vg.pk,
       type: "groupNode" as const,
       position: { x: virtualX, y: virtualY },
       data,

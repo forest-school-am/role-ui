@@ -28,3 +28,4 @@ export async function getSearchLinkGen(): Promise<string> {
   const { data } = await apiClient.get<string>('/api/search-link-gen');
   return data;
 }
+

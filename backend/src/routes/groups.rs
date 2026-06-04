@@ -52,17 +52,7 @@ struct GroupsQuery {
 }
 
 #[derive(Deserialize)]
-struct AddMemberBody {
-    user_pk: i64,
-}
-
-#[derive(Deserialize)]
-struct AddManagerBody {
-    user_pk: i64,
-}
-
-#[derive(Deserialize)]
-struct SetLeaderBody {
+struct UserPkBody {
     user_pk: i64,
 }
 
@@ -120,21 +110,9 @@ fn to_group_summary(group: &AuthentikGroup) -> GroupSummary {
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    let leader_uuid = attrs
-        .get("leader")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let manager_uuids: Vec<String> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    let (leader_uuid_str, manager_uuid_strs) = parse_role_attrs(&attrs);
+    let leader_uuid = leader_uuid_str.map(|s| s.to_string());
+    let manager_uuids: Vec<String> = manager_uuid_strs.iter().map(|s| s.to_string()).collect();
 
     let color = group
         .attributes
@@ -167,13 +145,8 @@ fn partition_members(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    let leader_uuid: Option<&str> = attrs.get("leader").and_then(|v| v.as_str());
-
-    let manager_uuids: HashSet<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (leader_uuid, manager_uuids_vec) = parse_role_attrs(&attrs);
+    let manager_uuids: HashSet<&str> = manager_uuids_vec.into_iter().collect();
 
     let mut leader: Option<GroupMember> = None;
     let mut managers: Vec<GroupMember> = Vec::new();
@@ -223,6 +196,17 @@ fn to_group_detail(
         color,
         is_virtual: false,
     }
+}
+
+/// Extract leader UUID and manager UUIDs from a group's attributes JSON value.
+fn parse_role_attrs(attrs: &serde_json::Value) -> (Option<&str>, Vec<&str>) {
+    let leader = attrs.get("leader").and_then(|v| v.as_str());
+    let managers = attrs
+        .get("managers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    (leader, managers)
 }
 
 /// Check whether adding `child_pk` as a child of `parent_pk` would create a cycle.
@@ -448,7 +432,7 @@ async fn add_member(
     State(state): State<AppState>,
     caller: AuthenticatedUser,
     Path(group_name): Path<String>,
-    Json(body): Json<AddMemberBody>,
+    Json(body): Json<UserPkBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
     let group = resolve_group(&state, &group_name).await?;
 
@@ -536,12 +520,7 @@ async fn remove_member(
     let target = state.authentik.get_user_by_pk(user_pk).await?;
 
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let leader_uuid: Option<&str> = attrs.get("leader").and_then(|v| v.as_str());
-    let manager_uuids: Vec<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
     let target_is_leader = leader_uuid == Some(target.uuid.as_str());
     let target_is_manager = manager_uuids.contains(&target.uuid.as_str());
@@ -652,7 +631,7 @@ async fn add_manager(
     State(state): State<AppState>,
     caller: AuthenticatedUser,
     Path(group_name): Path<String>,
-    Json(body): Json<AddManagerBody>,
+    Json(body): Json<UserPkBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
     let group = resolve_group(&state, &group_name).await?;
 
@@ -692,12 +671,7 @@ async fn add_manager(
     let target = state.authentik.get_user_by_pk(body.user_pk).await?;
 
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let leader_uuid: Option<&str> = attrs.get("leader").and_then(|v| v.as_str());
-    let manager_uuids: Vec<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
     if leader_uuid == Some(target.uuid.as_str()) {
         audit::log(
@@ -779,11 +753,7 @@ async fn remove_manager(
     let target = state.authentik.get_user_by_pk(user_pk).await?;
 
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let manager_uuids: Vec<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (_leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
     // Idempotent: not a manager — no audit, no change.
     if !manager_uuids.contains(&target.uuid.as_str()) {
@@ -827,7 +797,7 @@ async fn set_leader(
     State(state): State<AppState>,
     caller: AuthenticatedUser,
     Path(group_name): Path<String>,
-    Json(body): Json<SetLeaderBody>,
+    Json(body): Json<UserPkBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
     let group = resolve_group(&state, &group_name).await?;
 
@@ -850,12 +820,7 @@ async fn set_leader(
     let target = state.authentik.get_user_by_pk(body.user_pk).await?;
 
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let leader_uuid: Option<&str> = attrs.get("leader").and_then(|v| v.as_str());
-    let manager_uuids: Vec<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
     // Idempotent: already the leader — no audit, no change.
     if leader_uuid == Some(target.uuid.as_str()) {
@@ -1310,11 +1275,13 @@ async fn resign_leader(
 
     // 6. Build new attributes.
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let existing_managers: Vec<&str> = attrs
-        .get("managers")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
+    let (_leader_uuid, existing_managers) = parse_role_attrs(&attrs);
+
+    if !existing_managers.contains(&successor.uuid.as_str()) {
+        return Err(AppError::BadRequest(
+            "successor must currently be a manager to be appointed leader".to_string(),
+        ));
+    }
 
     // New managers = existing managers minus successor UUID minus caller UUID.
     let new_managers: Vec<serde_json::Value> = existing_managers

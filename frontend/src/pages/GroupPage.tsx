@@ -56,11 +56,6 @@ const GroupPage: React.FC = () => {
     return membership ? membership.role : 'non-member';
   }, [detail, me]);
 
-  const canAssignLeader = useMemo(() => {
-    if (!detail || !me) return false;
-    return (me.groups.find((g) => g.group_pk === detail.pk)?.role === 'leader') === true;
-  }, [detail, me]);
-
   const removeMemberMutation = useMutation({
     mutationFn: ({ userPk }: { userPk: number }) => removeMember(groupName, userPk),
     onSuccess: () => {
@@ -221,7 +216,7 @@ const GroupPage: React.FC = () => {
             </div>
 
             {/* Group colour */}
-            {callerRole === 'leader' && canAssignLeader && detail && (
+            {callerRole === 'leader' && detail && (
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-2">Group colour</p>
                 <ColorPicker
@@ -234,7 +229,7 @@ const GroupPage: React.FC = () => {
             )}
 
             {/* Action buttons */}
-            {callerRole === 'leader' && canAssignLeader && (
+            {callerRole === 'leader' && (
               <div className="space-y-2">
                 <button
                   className="w-full rounded border border-dashed border-red-300 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
@@ -361,10 +356,10 @@ const GroupPage: React.FC = () => {
               {detail.children.length > 0 ? (
                 <div className="space-y-1">
                   {detail.children.map((child) => (
-                    <div key={child.pk} className="py-1.5 px-2">
+                    <div key={child.pk} className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded">
                       <Link
                         to={'/groups/' + encodeURIComponent(child.name)}
-                        className="text-sm text-indigo-600 hover:underline"
+                        className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
                       >
                         {child.name}
                       </Link>
@@ -375,7 +370,7 @@ const GroupPage: React.FC = () => {
                 <p className="text-sm text-gray-400 italic">No subgroups.</p>
               )}
 
-              {callerRole === 'leader' && canAssignLeader && (
+              {callerRole === 'leader' && (
                 <div className="mt-3 space-y-2">
                   <button
                     className="w-full rounded border border-dashed border-indigo-300 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors"

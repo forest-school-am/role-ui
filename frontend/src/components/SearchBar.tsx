@@ -21,6 +21,13 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     return () => clearTimeout(timer);
   }, [query]);
 
+  const { data: searchData } = useQuery({
+    queryKey: ['search', debouncedQuery],
+    queryFn: () => searchAll(debouncedQuery),
+    enabled: debouncedQuery.trim().length > 1,
+    staleTime: 10_000,
+  });
+
   const { data: linkGenJs } = useQuery({
     queryKey: ['search-link-gen'],
     queryFn: getSearchLinkGen,
@@ -37,13 +44,6 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     }
   }, [linkGenJs]);
 
-  const { data: searchData } = useQuery({
-    queryKey: ['search', debouncedQuery],
-    queryFn: () => searchAll(debouncedQuery),
-    enabled: debouncedQuery.trim().length > 1,
-    staleTime: 10_000,
-  });
-
   const userResults: UserSearchResult[] = (searchData ?? []).filter(
     (r): r is UserSearchResult => r.__search_type === 'user',
   );
@@ -54,7 +54,19 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
   const hasResults = userResults.length > 0 || groupResults.length > 0;
 
   const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
-    const url = generateLink ? generateLink(result) : '#';
+    let url: string;
+    if (generateLink) {
+      url = generateLink(result);
+    } else {
+      switch (result.__search_type) {
+        case 'user':
+          url = `/users/${encodeURIComponent(result.username)}`;
+          break;
+        case 'group':
+          url = `/groups/${encodeURIComponent(result.name)}`;
+          break;
+      }
+    }
     setQuery(''); setOpen(false); onNavigate(url);
   };
 

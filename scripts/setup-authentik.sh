@@ -90,14 +90,18 @@ success "authentik is ready."
 # ---------------------------------------------------------------------------
 
 info "Checking for existing token '${TOKEN_IDENTIFIER}' ..."
-existing=$(curl -sf \
+token_exists=$(curl -sf \
     -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
     "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/?identifier=${TOKEN_IDENTIFIER}" \
-    | jq -r '.results[0].key // empty') || true
+    | jq -r '.results[0].identifier // empty') || true
 
-if [[ -n "$existing" ]]; then
-    success "Token '${TOKEN_IDENTIFIER}' already exists."
-    API_TOKEN="$existing"
+if [[ -n "$token_exists" ]]; then
+    success "Token '${TOKEN_IDENTIFIER}' already exists — retrieving key ..."
+    API_TOKEN=$(curl -sf \
+        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+        "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/${TOKEN_IDENTIFIER}/view_key/" \
+        | jq -r '.key') || error "Failed to retrieve existing token key."
+    success "Retrieved existing API token."
 else
     # -----------------------------------------------------------------------
     # Step 4 — Find or create the service account user
@@ -132,7 +136,7 @@ else
         -X POST \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
         -H "Content-Type: application/json" \
-        -d "{\"identifier\": \"${TOKEN_IDENTIFIER}\", \"intent\": \"api\", \"user\": ${user_pk}, \"description\": \"Role UI backend service account token\"}" \
+        -d "{\"identifier\": \"${TOKEN_IDENTIFIER}\", \"intent\": \"api\", \"user\": ${user_pk}, \"description\": \"Role UI backend service account token\", \"expiring\": false}" \
         "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/") \
         || error "Failed to create API token. Check that your bootstrap token has admin permissions."
 
@@ -195,21 +199,28 @@ provider_pk=$(curl -sf \
 if [[ -n "$provider_pk" ]]; then
     success "OIDC provider already exists (pk=${provider_pk})."
 else
-    info "Fetching authorization and invalidation flow UUIDs ..."
-    auth_flow=$(curl -sf \
-        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?slug=default-provider-authorization-implicit-consent" \
-        | jq -r '.results[0].pk') || error "Failed to fetch authorization flow."
-    inval_flow=$(curl -sf \
-        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=invalidation" \
-        | jq -r '.results[0].pk') || error "Failed to fetch invalidation flow."
-
-    info "Fetching openid scope mapping UUID ..."
-    openid_mapping=$(curl -sf \
-        -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
-        "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/provider/scope/?scope_name=openid" \
-        | jq -r '.results[0].pk') || error "Failed to fetch openid scope mapping."
+    info "Waiting for authentik to finish seeding default flows and property mappings ..."
+    auth_flow=""; inval_flow=""; openid_mapping=""
+    for i in $(seq 1 24); do
+        auth_flow=$(curl -sf \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=authorization&page_size=5" \
+            | jq -r '.results[0].pk // empty') || true
+        inval_flow=$(curl -sf \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/flows/instances/?designation=invalidation&page_size=5" \
+            | jq -r '.results[0].pk // empty') || true
+        openid_mapping=$(curl -sf \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
+            | jq -r '.results[] | select(.name | test("OpenID.*openid"; "i")) | .pk' | head -1) || true
+        [[ -n "$auth_flow" && -n "$inval_flow" && -n "$openid_mapping" ]] && break
+        info "  Not ready yet (attempt ${i}/24) — auth_flow=${auth_flow:-missing} inval_flow=${inval_flow:-missing} openid_mapping=${openid_mapping:-missing}. Retrying in 5s..."
+        sleep 5
+    done
+    [[ -n "$auth_flow" ]]       || error "Authorization flow never appeared after 2 minutes."
+    [[ -n "$inval_flow" ]]      || error "Invalidation flow never appeared after 2 minutes."
+    [[ -n "$openid_mapping" ]]  || error "OpenID scope mapping never appeared after 2 minutes."
 
     info "Creating OIDC provider '${OIDC_CLIENT_ID}' ..."
     provider_pk=$(curl -sf \
