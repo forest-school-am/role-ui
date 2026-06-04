@@ -1,16 +1,31 @@
 set dotenv-load
 
+# Show this help
+help:
+    @echo ""
+    @echo "autentik-role-UI — dev workflow"
+    @echo ""
+    @echo "  just authentik <cmd>   manage the authentik stack"
+    @echo "  just app <cmd>         manage the local app"
+    @echo "  just build             one-shot frontend production build"
+    @echo "  just dev               Vite dev server with hot-reload (:5173)"
+    @echo "  just setup             create service account + OIDC app"
+    @echo "  just seed              seed 10 test users + 5 groups"
+    @echo ""
+    @echo "  Run 'just authentik' or 'just app' for subcommand help."
+    @echo ""
+
 # ---------------------------------------------------------------------------
 # Subcommand dispatchers
 # ---------------------------------------------------------------------------
 
 # Manage the authentik docker-compose stack  (up | down | reset)
-authentik cmd:
-    just _authentik-{{cmd}}
+authentik cmd='help':
+    @just _authentik-{{cmd}}
 
 # Manage the local app (Rust backend + frontend build)  (up | logs)
-app cmd:
-    just _app-{{cmd}}
+app cmd='help':
+    @just _app-{{cmd}}
 
 # ---------------------------------------------------------------------------
 # Standalone recipes (still useful individually)
@@ -40,6 +55,15 @@ dev:
 # Private: authentik subcommands
 # ---------------------------------------------------------------------------
 
+_authentik-help:
+    @echo ""
+    @echo "just authentik <cmd>"
+    @echo ""
+    @echo "  up     start containers, preserving existing data"
+    @echo "  down   stop containers, preserving data (no volume wipe)"
+    @echo "  reset  full wipe → start → wait for health → setup → seed"
+    @echo ""
+
 # Start the authentik stack (postgres + redis + server + worker)
 _authentik-up:
     docker compose up -d
@@ -65,6 +89,14 @@ _authentik-reset:
 # ---------------------------------------------------------------------------
 # Private: app subcommands
 # ---------------------------------------------------------------------------
+
+_app-help:
+    @echo ""
+    @echo "just app <cmd>"
+    @echo ""
+    @echo "  up     start backend + vite watch build in background"
+    @echo "  logs   tail /tmp/backend.log and /tmp/frontend.log"
+    @echo ""
 
 # Start Rust backend + Vite watch build concurrently in the background
 _app-up:

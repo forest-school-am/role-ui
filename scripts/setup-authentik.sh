@@ -132,7 +132,7 @@ else
         -X POST \
         -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
         -H "Content-Type: application/json" \
-        -d "{\"identifier\": \"${TOKEN_IDENTIFIER}\", \"intent\": \"api\", \"user\": ${user_pk}, \"description\": \"Role UI backend service account token\"}" \
+        -d "{\"identifier\": \"${TOKEN_IDENTIFIER}\", \"intent\": \"api\", \"user\": ${user_pk}, \"description\": \"Role UI backend service account token\", \"expiring\": false}" \
         "${AUTHENTIK_BASE_URL}/api/v3/core/tokens/") \
         || error "Failed to create API token. Check that your bootstrap token has admin permissions."
 
