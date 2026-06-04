@@ -24,3 +24,8 @@ export async function searchAll(q: string, types?: ('user' | 'group')[]): Promis
   return data;
 }
 
+export async function getSearchLinkGen(): Promise<string> {
+  const { data } = await apiClient.get<string>('/api/search-link-gen');
+  return data;
+}
+

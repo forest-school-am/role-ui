@@ -1,5 +1,7 @@
 use axum::{
     extract::{Query, State},
+    http::header,
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -8,9 +10,21 @@ use serde_json::{json, Value};
 
 use crate::{auth::AuthenticatedUser, error::AppError, AppState};
 
+const SEARCH_LINK_GEN_JS: &str = r#"function generateSearchLink(obj) {
+  switch (obj.__search_type) {
+    case 'user':
+      return '/users/' + encodeURIComponent(obj.username);
+    case 'group':
+      return '/groups/' + encodeURIComponent(obj.name);
+    default:
+      return '#';
+  }
+}"#;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/search", get(search))
+        .route("/api/search-link-gen", get(search_link_gen))
 }
 
 // ---------------------------------------------------------------------------
@@ -87,5 +101,17 @@ async fn search(
     }
 
     Ok(Json(results))
+}
+
+/// GET /api/search-link-gen
+/// Unauthenticated. Returns a JavaScript snippet with a generateSearchLink(obj)
+/// function that maps __search_type to a URL. Extend this when new object types
+/// are added server-side.
+async fn search_link_gen() -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        SEARCH_LINK_GEN_JS,
+    )
+        .into_response()
 }
 

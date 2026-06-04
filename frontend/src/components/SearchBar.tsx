@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { searchAll } from '../api/search';
-import type { UserSearchResult, GroupSearchResult } from '../api/search';
+import { searchAll, getSearchLinkGen } from '../api/search';
+import type { UserSearchResult, GroupSearchResult, SearchResult } from '../api/search';
 
 interface SearchBarProps {
   onNavigate: (url: string) => void;
@@ -28,6 +28,22 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     staleTime: 10_000,
   });
 
+  const { data: linkGenJs } = useQuery({
+    queryKey: ['search-link-gen'],
+    queryFn: getSearchLinkGen,
+    staleTime: Infinity,
+  });
+
+  const generateLink = useMemo<((obj: SearchResult) => string) | null>(() => {
+    if (!linkGenJs) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function('obj', `${linkGenJs}; return generateSearchLink(obj);`) as (obj: SearchResult) => string;
+    } catch {
+      return null;
+    }
+  }, [linkGenJs]);
+
   const userResults: UserSearchResult[] = (searchData ?? []).filter(
     (r): r is UserSearchResult => r.__search_type === 'user',
   );
@@ -39,13 +55,17 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
 
   const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
     let url: string;
-    switch (result.__search_type) {
-      case 'user':
-        url = `/users/${encodeURIComponent(result.username)}`;
-        break;
-      case 'group':
-        url = `/groups/${encodeURIComponent(result.name)}`;
-        break;
+    if (generateLink) {
+      url = generateLink(result);
+    } else {
+      switch (result.__search_type) {
+        case 'user':
+          url = `/users/${encodeURIComponent(result.username)}`;
+          break;
+        case 'group':
+          url = `/groups/${encodeURIComponent(result.name)}`;
+          break;
+      }
     }
     setQuery(''); setOpen(false); onNavigate(url);
   };
