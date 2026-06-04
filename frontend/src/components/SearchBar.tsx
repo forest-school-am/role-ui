@@ -20,6 +20,7 @@ function SearchCategoryHeader({ label }: { label: string }) {
 export default function SearchBar({ onNavigate }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const debouncedQuery = useDebounce(query, 300);
@@ -54,6 +55,11 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
     (r): r is GroupSearchResult => r.__search_type === 'group',
   );
 
+  const flatResults: (UserSearchResult | GroupSearchResult)[] = [
+    ...userResults,
+    ...groupResults,
+  ];
+
   const hasResults = userResults.length > 0 || groupResults.length > 0;
 
   const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
@@ -78,9 +84,30 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
       <input
         ref={inputRef}
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setSelectedIndex(-1); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (!open || !hasResults) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIndex((i) => Math.min(i + 1, flatResults.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIndex((i) => Math.max(i - 1, -1));
+          } else if (e.key === 'Enter') {
+            if (selectedIndex >= 0) {
+              e.preventDefault();
+              handleSelect(flatResults[selectedIndex]);
+            } else if (flatResults.length === 1) {
+              e.preventDefault();
+              handleSelect(flatResults[0]);
+            }
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+            setSelectedIndex(-1);
+          }
+        }}
         placeholder="Search users and groups…"
         className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm
                    focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -95,7 +122,9 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
                 <li
                   key={u.uuid}
                   onMouseDown={() => handleSelect(u)}
-                  className="px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer"
+                  className={`px-3 py-2 text-sm text-gray-700 cursor-pointer ${
+                    userResults.indexOf(u) === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
+                  }`}
                 >
                   {u.name}{' '}
                   <span className="text-gray-400 text-xs">(@{u.username})</span>
@@ -110,7 +139,11 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
                 <li
                   key={g.pk}
                   onMouseDown={() => handleSelect(g)}
-                  className="px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer"
+                  className={`px-3 py-2 text-sm text-gray-700 cursor-pointer ${
+                    userResults.length + groupResults.indexOf(g) === selectedIndex
+                      ? 'bg-indigo-50'
+                      : 'hover:bg-indigo-50'
+                  }`}
                 >
                   {g.name}
                 </li>

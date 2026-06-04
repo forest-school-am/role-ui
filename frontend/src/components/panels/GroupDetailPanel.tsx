@@ -39,6 +39,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [searchResults, setSearchResults] = useState<UserSummary[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const queryClient = useQueryClient();
 
   const debouncedSearch = useDebounce(searchTerm, 300);
@@ -110,7 +111,36 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 type="text"
                 className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); setSelectedIndex(-1); }}
+                onKeyDown={(e) => {
+                  if (searchResults.length === 0) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex((i) => Math.min(i + 1, searchResults.length - 1));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex((i) => Math.max(i - 1, -1));
+                  } else if (e.key === 'Enter') {
+                    if (selectedIndex >= 0) {
+                      e.preventDefault();
+                      const u = searchResults[selectedIndex];
+                      setSelectedUser(u);
+                      setSearchResults([]);
+                      setSearchTerm('');
+                      setSelectedIndex(-1);
+                    } else if (searchResults.length === 1) {
+                      e.preventDefault();
+                      const u = searchResults[0];
+                      setSelectedUser(u);
+                      setSearchResults([]);
+                      setSearchTerm('');
+                      setSelectedIndex(-1);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setSearchResults([]);
+                    setSelectedIndex(-1);
+                  }
+                }}
                 placeholder="e.g. alice"
                 autoFocus
               />
@@ -119,11 +149,14 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                   {searchResults.map((u) => (
                     <li
                       key={u.pk}
-                      className="px-3 py-2 text-sm text-gray-800 cursor-pointer hover:bg-indigo-50"
+                      className={`px-3 py-2 text-sm text-gray-800 cursor-pointer ${
+                        searchResults.indexOf(u) === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
+                      }`}
                       onClick={() => {
                         setSelectedUser(u);
                         setSearchResults([]);
                         setSearchTerm("");
+                        setSelectedIndex(-1);
                       }}
                     >
                       {u.name} ({u.username})

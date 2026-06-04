@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getGroup, getGroups, removeMember, removeManager } from '../api/groups';
+import { getGroup, getGroups, removeMember, removeManager, addManager } from '../api/groups';
 import { extractApiError } from '../api/client';
 import { invalidateGroup } from '../api/groupQueryHelpers';
 import { getMe } from '../api/users';
@@ -62,6 +62,16 @@ const GroupPage: React.FC = () => {
 
   const removeManagerMutation = useMutation({
     mutationFn: ({ userPk }: { userPk: number }) => removeManager(groupName, userPk),
+    onSuccess: () => {
+      setMutationError(null);
+      invalidateGroup(queryClient, groupName);
+      void queryClient.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (err) => setMutationError(extractApiError(err)),
+  });
+
+  const addManagerMutation = useMutation({
+    mutationFn: ({ userPk }: { userPk: number }) => addManager(groupName, userPk),
     onSuccess: () => {
       setMutationError(null);
       invalidateGroup(queryClient, groupName);
@@ -260,6 +270,15 @@ const GroupPage: React.FC = () => {
                       >
                         {m.name}
                       </Link>
+                      {callerRole === 'leader' && (
+                        <button
+                          className="text-xs text-indigo-500 hover:text-indigo-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => addManagerMutation.mutate({ userPk: m.pk })}
+                          disabled={addManagerMutation.isPending}
+                        >
+                          {addManagerMutation.isPending ? '…' : '→ Manager'}
+                        </button>
+                      )}
                       {canManage && (
                         <button
                           className="text-xs text-red-500 hover:text-red-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
