@@ -2,20 +2,7 @@ set dotenv-load
 
 # Show this help
 help:
-    @echo ""
-    @echo "autentik-role-UI — dev workflow"
-    @echo ""
-    @echo "  just authentik <cmd>   manage the authentik stack"
-    @echo "  just app <cmd>         manage the local app"
-    @echo "  just build             one-shot frontend production build"
-    @echo "  just dev               Vite dev server with hot-reload (:5173)"
-    @echo "  just lint              run fallow (frontend) + clippy (backend)"
-    @echo "  just setup             create service account + OIDC app"
-    @echo "  just seed              seed 10 test users + 5 groups"
-    @echo ""
-    @echo "  Run 'just authentik' or 'just app' for subcommand help."
-    @echo ""
-
+    @just --list
 # ---------------------------------------------------------------------------
 # Subcommand dispatchers
 # ---------------------------------------------------------------------------
@@ -48,14 +35,12 @@ _authentik-seed:
 lint:
     #!/usr/bin/env bash
     rc=0
-    echo "── fallow: dead-code ───────────────────────────────────────"
-    (cd frontend && npx fallow dead-code) || rc=1
-    echo ""
-    echo "── fallow: dupes ───────────────────────────────────────────"
-    (cd frontend && npx fallow dupes) || rc=1
+    echo "── fallow ──────────────────────────────────────────────────"
+    (cd frontend && npx fallow) || rc=1
     echo ""
     echo "── clippy ──────────────────────────────────────────────────"
-    cargo clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
+    CARGO=$(which cargo 2>/dev/null || ls /nix/store/*/bin/cargo 2>/dev/null | head -1)
+    "${CARGO:?cargo not found}" clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
     exit $rc
 
 # Build the frontend once (Vite/React → frontend/dist/)
