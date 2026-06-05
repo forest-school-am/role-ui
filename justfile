@@ -9,6 +9,7 @@ help:
     @echo "  just app <cmd>         manage the local app"
     @echo "  just build             one-shot frontend production build"
     @echo "  just dev               Vite dev server with hot-reload (:5173)"
+    @echo "  just lint              run fallow (frontend) + clippy (backend)"
     @echo "  just setup             create service account + OIDC app"
     @echo "  just seed              seed 10 test users + 5 groups"
     @echo ""
@@ -42,6 +43,20 @@ _authentik-seed:
     #!/usr/bin/env bash
     set -euo pipefail
     AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" bash scripts/seed-test-data.sh
+
+# Run fallow (frontend dead code + duplication) and clippy (Rust lints)
+lint:
+    #!/usr/bin/env bash
+    rc=0
+    echo "── fallow: dead-code ───────────────────────────────────────"
+    (cd frontend && npx fallow dead-code) || rc=1
+    echo ""
+    echo "── fallow: dupes ───────────────────────────────────────────"
+    (cd frontend && npx fallow dupes) || rc=1
+    echo ""
+    echo "── clippy ──────────────────────────────────────────────────"
+    cargo clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
+    exit $rc
 
 # Build the frontend once (Vite/React → frontend/dist/)
 build:
@@ -97,6 +112,7 @@ _app-help:
     @echo "just app <cmd>"
     @echo ""
     @echo "  up     start backend + vite watch build in background"
+    @echo "  down   stop backend + vite watch build"
     @echo "  logs   tail /tmp/backend.log and /tmp/frontend.log"
     @echo ""
 
@@ -118,6 +134,11 @@ _app-up:
 
     echo "Frontend build watch started (PID ${FRONTEND_PID}), logging to /tmp/frontend.log"
     echo "Backend started            (PID ${BACKEND_PID}), logging to /tmp/backend.log"
+
+# Stop backend and vite watch build
+_app-down:
+    pkill -f "target/debug/server" || true
+    pkill -f "vite build --watch" || true
 
 # Tail both log files together
 _app-logs:
