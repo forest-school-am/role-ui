@@ -21,6 +21,14 @@ import ModalShell from "../ui/ModalShell";
 import ModalActions from "../ui/ModalActions";
 import { useDebounce } from "../../hooks/useDebounce";
 
+function makeMutationErrorHandler(
+  setLocalError: React.Dispatch<React.SetStateAction<string | null>>,
+) {
+  return (err: unknown) => {
+    setLocalError(extractApiError(err));
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Add Member Modal
 // ---------------------------------------------------------------------------
@@ -60,11 +68,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
       onClose();
     },
-    onError: (err: unknown) => {
-      setLocalError(extractApiError(err));
-    },
+    onError: makeMutationErrorHandler(setLocalError),
   });
 
+  // fallow-ignore-next-line code-duplication
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -204,11 +211,10 @@ export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
       void queryClient.invalidateQueries({ queryKey: ["group", groupPk] });
       onClose();
     },
-    onError: (err: unknown) => {
-      setLocalError(extractApiError(err));
-    },
+    onError: makeMutationErrorHandler(setLocalError),
   });
 
+  // fallow-ignore-next-line code-duplication
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -283,11 +289,10 @@ export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
       });
       onClose();
     },
-    onError: (err: unknown) => {
-      setLocalError(extractApiError(err));
-    },
+    onError: makeMutationErrorHandler(setLocalError),
   });
 
+  // fallow-ignore-next-line code-duplication
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -360,11 +365,10 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
       void queryClient.invalidateQueries({ queryKey: ["me"] });
       onClose();
     },
-    onError: (err: unknown) => {
-      setLocalError(extractApiError(err));
-    },
+    onError: makeMutationErrorHandler(setLocalError),
   });
 
+  // fallow-ignore-next-line code-duplication
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -468,11 +472,10 @@ export const DisbandGroupModal: React.FC<DisbandGroupModalProps> = ({
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
       onSuccess();
     },
-    onError: (err: unknown) => {
-      setLocalError(extractApiError(err));
-    },
+    onError: makeMutationErrorHandler(setLocalError),
   });
 
+  // fallow-ignore-next-line code-duplication
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);

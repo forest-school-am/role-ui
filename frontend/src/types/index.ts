@@ -33,7 +33,7 @@ export interface User {
 }
 
 // Summary of a group, used in the groups list (GET /api/groups)
-export interface GroupSummary {
+interface GroupSummary {
   pk: string;            // UUID
   name: string;
   is_superuser: boolean;
