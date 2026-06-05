@@ -32,7 +32,6 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/groups/:group_name", delete(disband_group))
         .route("/api/groups/:group_name/leader/resign", post(resign_leader))
-        .route("/api/groups/:group_name/leader", put(set_leader))
         .route("/api/groups/:group_name/subgroups", post(create_subgroup))
         .route("/api/groups/:group_name/children", post(add_child_group))
         .route(
@@ -791,91 +790,6 @@ async fn remove_manager(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// PUT /api/groups/:group_name/leader — transfer leadership to a manager.
-/// Only direct leader of the group may call this (no parent-inheritance fallback).
-async fn set_leader(
-    State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
-    Json(body): Json<UserPkBody>,
-) -> Result<Json<MutationSuccess>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "set_leader",
-            &group.pk,
-            &group.name,
-            Some(body.user_pk),
-            "forbidden",
-            Some("must be direct leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of this group".to_string(),
-        ));
-    }
-
-    let target = state.authentik.get_user_by_pk(body.user_pk).await?;
-
-    let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
-    let (leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
-
-    // Idempotent: already the leader — no audit, no change.
-    if leader_uuid == Some(target.uuid.as_str()) {
-        return Ok(Json(MutationSuccess::ok()));
-    }
-
-    if !manager_uuids.contains(&target.uuid.as_str()) {
-        audit::log(
-            &caller,
-            "set_leader",
-            &group.pk,
-            &group.name,
-            Some(body.user_pk),
-            "bad_request",
-            Some("user must be a manager before becoming leader"),
-        );
-        return Err(AppError::BadRequest(
-            "user must be a manager before becoming leader".to_string(),
-        ));
-    }
-
-    let new_managers: Vec<serde_json::Value> = manager_uuids
-        .iter()
-        .filter(|&&s| s != target.uuid.as_str())
-        .map(|s| serde_json::Value::String(s.to_string()))
-        .collect();
-
-    let mut new_attrs = attrs.clone();
-    if let Some(obj) = new_attrs.as_object_mut() {
-        obj.insert(
-            "leader".to_string(),
-            serde_json::Value::String(target.uuid.clone()),
-        );
-        obj.insert(
-            "managers".to_string(),
-            serde_json::Value::Array(new_managers),
-        );
-    }
-
-    state
-        .authentik
-        .patch_group(&group.pk, json!({ "attributes": new_attrs }))
-        .await?;
-
-    audit::log(
-        &caller,
-        "set_leader",
-        &group.pk,
-        &group.name,
-        Some(body.user_pk),
-        "ok",
-        None,
-    );
-    Ok(Json(MutationSuccess::ok()))
-}
 
 /// POST /api/groups/:group_name/subgroups — create a new child group.
 async fn create_subgroup(
