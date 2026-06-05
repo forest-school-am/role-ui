@@ -232,13 +232,13 @@ const GroupPage: React.FC = () => {
                       >
                         {m.name}
                       </Link>
-                      {canManage && (
+                      {callerRole === 'leader' && (
                         <button
-                          className="text-xs text-red-500 hover:text-red-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="text-xs text-orange-500 hover:text-orange-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={() => removeManagerMutation.mutate({ userPk: m.pk })}
                           disabled={removeManagerMutation.isPending}
                         >
-                          Remove
+                          {removeManagerMutation.isPending ? '…' : '← Member'}
                         </button>
                       )}
                     </div>
