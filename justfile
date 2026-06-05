@@ -39,8 +39,7 @@ lint:
     (cd frontend && npx fallow) || rc=1
     echo ""
     echo "── clippy ──────────────────────────────────────────────────"
-    CARGO=$(which cargo 2>/dev/null || ls /nix/store/*/bin/cargo 2>/dev/null | head -1)
-    "${CARGO:?cargo not found}" clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
+    cargo clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
     exit $rc
 
 # Build the frontend once (Vite/React → frontend/dist/)
