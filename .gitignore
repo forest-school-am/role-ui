@@ -4,6 +4,7 @@ result-*
 
 # Rust build artifacts
 backend/target/
+backend/macros/target/
 
 # Node / frontend
 frontend/node_modules/

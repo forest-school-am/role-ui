@@ -1,8 +1,9 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     routing::get,
     Json, Router,
 };
+use const_format::formatcp;
 use serde::Deserialize;
 
 use crate::{
@@ -10,14 +11,21 @@ use crate::{
     authentik::{resolve_role, AuthentikUser},
     error::AppError,
     models::{GroupMembership, SocialAccount, SshKey, User, UserSummary},
+    routes::helpers::{PathParams, PathParamsUsername, UserFromPath},
     AppState,
 };
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/users/me", get(get_me))
-        .route("/api/users", get(search_users))
-        .route("/api/users/:username", get(get_user))
+    Router::new().nest(
+        "/users",
+        Router::new()
+            .route("/", get(search_users))
+            .route("/me", get(get_me))
+            .route(
+                formatcp!("/:{}", PathParams::Username.to_static_str()),
+                get(get_user),
+            ),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -99,14 +107,12 @@ fn build_ssh(auth_user: &AuthentikUser) -> Vec<SshKey> {
 }
 
 /// Build a full User response for an authentik user.
-async fn build_user_response(
-    state: &AppState,
-    target_pk: i64,
-    target_uuid: &str,
-) -> Result<User, AppError> {
+async fn build_user_response(state: &AppState, target_username: &str) -> Result<User, AppError> {
     let (auth_user, groups) = tokio::try_join!(
-        state.authentik.get_user_by_pk(target_pk),
-        state.authentik.get_groups_for_user(target_pk),
+        state.authentik.get_user_by_username(target_username),
+        state
+            .authentik
+            .get_groups_for_user_by_username(target_username),
     )?;
 
     let social = build_social(&auth_user);
@@ -115,7 +121,7 @@ async fn build_user_response(
     let mut group_memberships: Vec<GroupMembership> = groups
         .iter()
         .map(|group| {
-            let role = resolve_role(group, target_uuid, target_pk);
+            let role = resolve_role(group, &auth_user.uuid);
             GroupMembership {
                 group_pk: group.pk.clone(),
                 group_name: group.name.clone(),
@@ -158,7 +164,7 @@ async fn get_me(
     State(state): State<AppState>,
     caller: AuthenticatedUser,
 ) -> Result<Json<User>, AppError> {
-    let user = build_user_response(&state, caller.pk, &caller.uuid).await?;
+    let user = build_user_response(&state, &caller.username).await?;
     Ok(Json(user))
 }
 
@@ -170,7 +176,7 @@ async fn search_users(
     Query(params): Query<UsersQuery>,
 ) -> Result<Json<Vec<UserSummary>>, AppError> {
     let term = match params.search.as_deref() {
-        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        Some(t) if !t.trim().is_empty() => t.trim().to_owned(),
         _ => return Ok(Json(vec![])),
     };
 
@@ -183,9 +189,10 @@ async fn search_users(
 async fn get_user(
     State(state): State<AppState>,
     _caller: AuthenticatedUser,
-    Path(username): Path<String>,
+    UserFromPath {
+        user: auth_user, ..
+    }: UserFromPath<PathParamsUsername>,
 ) -> Result<Json<User>, AppError> {
-    let auth_user = state.authentik.get_user_by_username(&username).await?;
-    let user = build_user_response(&state, auth_user.pk, &auth_user.uuid).await?;
+    let user = build_user_response(&state, &auth_user.username).await?;
     Ok(Json(user))
 }

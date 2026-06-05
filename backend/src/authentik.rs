@@ -117,10 +117,7 @@ impl AuthentikClient {
     }
 
     /// GET a single authentik resource; maps 404 to AppError::NotFound.
-    async fn get<T: for<'de> Deserialize<'de>>(
-        &self,
-        url: &str,
-    ) -> Result<T, AppError> {
+    async fn get<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T, AppError> {
         let resp = self
             .client
             .get(url)
@@ -205,10 +202,7 @@ impl AuthentikClient {
     /// Fetch all non-service-account users (type = "internal" or "external").
     /// Handles pagination — fetches all pages.
     pub async fn get_all_real_users(&self) -> Result<Vec<AuthentikUser>, AppError> {
-        let base = format!(
-            "{}/api/v3/core/users/",
-            self.base_url.trim_end_matches('/')
-        );
+        let base = format!("{}/api/v3/core/users/", self.base_url.trim_end_matches('/'));
 
         // Fetch internal users.
         let internal = self
@@ -223,6 +217,16 @@ impl AuthentikClient {
         let users: Vec<AuthentikUser> = internal.into_iter().chain(external).collect();
 
         Ok(users)
+    }
+
+    /// Fetch a user by their username.
+    pub async fn get_user_by_usernme(&self, username: &str) -> Result<AuthentikUser, AppError> {
+        let url = format!(
+            "{}/api/v3/core/users/?username={username}",
+            self.base_url.trim_end_matches('/')
+        );
+        self.fetch_first(&url, &format!("user with username `{username}` not found"))
+            .await
     }
 
     /// Fetch a user by their UUID (string UUID, not integer PK).
@@ -287,7 +291,11 @@ impl AuthentikClient {
     }
 
     /// Search users by a term (username/name/email prefix search).
-    pub async fn search_users(&self, term: &str, limit: usize) -> Result<Vec<AuthentikUser>, AppError> {
+    pub async fn search_users(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<AuthentikUser>, AppError> {
         let encoded = urlencode(term);
         let url = format!(
             "{}/api/v3/core/users/?search={encoded}&page_size={limit}&page=1",
@@ -343,7 +351,11 @@ impl AuthentikClient {
     }
 
     /// PATCH a group with the given JSON body.
-    pub async fn patch_group(&self, group_pk: &str, body: serde_json::Value) -> Result<(), AppError> {
+    pub async fn patch_group(
+        &self,
+        group_pk: &str,
+        body: serde_json::Value,
+    ) -> Result<(), AppError> {
         let url = format!(
             "{}/api/v3/core/groups/{group_pk}/",
             self.base_url.trim_end_matches('/')
@@ -413,8 +425,25 @@ impl AuthentikClient {
         self.get_all_pages::<AuthentikGroup>(&base, &extra).await
     }
 
+    pub async fn get_groups_for_user_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Vec<AuthentikGroup>, AppError> {
+        let base = format!(
+            "{}/api/v3/core/groups/",
+            self.base_url.trim_end_matches('/')
+        );
+        let extra = format!("&members_by_username={username}&include_parents=true");
+        self.get_all_pages::<AuthentikGroup>(&base, &extra).await
+    }
+
     /// POST an add/remove user action to a group endpoint.
-    async fn post_group_user_action(&self, group_pk: &str, user_pk: i64, action: &str) -> Result<(), AppError> {
+    async fn post_group_user_action(
+        &self,
+        group_pk: &str,
+        user_pk: i64,
+        action: &str,
+    ) -> Result<(), AppError> {
         let url = format!(
             "{}/api/v3/core/groups/{group_pk}/{action}/",
             self.base_url.trim_end_matches('/')
@@ -443,7 +472,8 @@ impl AuthentikClient {
 
     /// Add a user to a group via authentik's dedicated endpoint.
     pub async fn add_user_to_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
-        self.post_group_user_action(group_pk, user_pk, "add_user").await
+        self.post_group_user_action(group_pk, user_pk, "add_user")
+            .await
     }
 
     /// Validate a user-supplied bearer token via the userinfo endpoint.
@@ -511,8 +541,13 @@ impl AuthentikClient {
     }
 
     /// Remove a user from a group via authentik's dedicated endpoint.
-    pub async fn remove_user_from_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
-        self.post_group_user_action(group_pk, user_pk, "remove_user").await
+    pub async fn remove_user_from_group(
+        &self,
+        group_pk: &str,
+        user_pk: i64,
+    ) -> Result<(), AppError> {
+        self.post_group_user_action(group_pk, user_pk, "remove_user")
+            .await
     }
 }
 
@@ -521,7 +556,7 @@ impl AuthentikClient {
 // ---------------------------------------------------------------------------
 
 /// Resolve a user's role in a group based on the group's attributes.
-pub fn resolve_role(group: &AuthentikGroup, user_uuid: &str, _user_pk: i64) -> GroupRole {
+pub fn resolve_role(group: &AuthentikGroup, user_uuid: &str) -> GroupRole {
     let attrs = group
         .attributes
         .as_ref()

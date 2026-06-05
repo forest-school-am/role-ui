@@ -1,25 +1,35 @@
-import React, { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getGroup, getGroups, removeMember, removeManager, addManager } from '../api/groups';
-import { extractApiError } from '../api/client';
-import { invalidateGroup } from '../api/groupQueryHelpers';
-import { getMe } from '../api/users';
-import CrownIcon from '../components/CrownIcon';
-import ColorPicker from '../components/dag/ColorPicker';
-import PageLoadingSkeleton from '../components/ui/PageLoadingSkeleton';
-import PageErrorCard from '../components/ui/PageErrorCard';
-import DashedButton from '../components/ui/DashedButton';
-import MutationErrorBanner from '../components/ui/MutationErrorBanner';
-import EmptyNote from '../components/ui/EmptyNote';
-import GroupModalsRenderer from '../components/panels/GroupModalsRenderer';
-import { useCallerRole } from '../hooks/useCallerRole';
-import { useGroupModals } from '../hooks/useGroupModals';
-import { SECTION_LABEL_CLS, MINI_LINK_BTN_CLS, MEMBER_ROW_CLS } from '../lib/ui-constants';
+import React, { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  getGroup,
+  getGroups,
+  removeMember,
+  removeManager,
+  addManager,
+} from "../api/groups";
+import { extractApiError } from "../api/client";
+import { invalidateGroup } from "../api/groupQueryHelpers";
+import { getMe } from "../api/users";
+import CrownIcon from "../components/CrownIcon";
+import ColorPicker from "../components/dag/ColorPicker";
+import PageLoadingSkeleton from "../components/ui/PageLoadingSkeleton";
+import PageErrorCard from "../components/ui/PageErrorCard";
+import DashedButton from "../components/ui/DashedButton";
+import MutationErrorBanner from "../components/ui/MutationErrorBanner";
+import EmptyNote from "../components/ui/EmptyNote";
+import GroupModalsRenderer from "../components/panels/GroupModalsRenderer";
+import { useCallerRole } from "../hooks/useCallerRole";
+import { useGroupModals } from "../hooks/useGroupModals";
+import {
+  SECTION_LABEL_CLS,
+  MINI_LINK_BTN_CLS,
+  MEMBER_ROW_CLS,
+} from "../lib/ui-constants";
 
 const GroupPage: React.FC = () => {
   const { name } = useParams<{ name: string }>();
-  const groupName = name ?? '';
+  const groupName = name ?? "";
   const navigate = useNavigate();
 
   const { activeModal, open, close } = useGroupModals();
@@ -33,49 +43,52 @@ const GroupPage: React.FC = () => {
     isError: detailError,
     error: detailErrorObj,
   } = useQuery({
-    queryKey: ['group', groupName],
+    queryKey: ["group", groupName],
     queryFn: () => getGroup(groupName),
     enabled: !!groupName,
   });
 
   const { data: me } = useQuery({
-    queryKey: ['me'],
+    queryKey: ["me"],
     queryFn: getMe,
   });
 
   const { data: allGroups } = useQuery({
-    queryKey: ['groups'],
+    queryKey: ["groups"],
     queryFn: getGroups,
   });
 
   const callerRole = useCallerRole(detail, me);
 
   const removeMemberMutation = useMutation({
-    mutationFn: ({ userPk }: { userPk: number }) => removeMember(groupName, userPk),
+    mutationFn: ({ username }: { username: string }) =>
+      removeMember(groupName, username),
     onSuccess: () => {
       setMutationError(null);
       invalidateGroup(queryClient, groupName);
-      void queryClient.invalidateQueries({ queryKey: ['me'] });
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setMutationError(extractApiError(err)),
   });
 
   const removeManagerMutation = useMutation({
-    mutationFn: ({ userPk }: { userPk: number }) => removeManager(groupName, userPk),
+    mutationFn: ({ username }: { username: string }) =>
+      removeManager(groupName, username),
     onSuccess: () => {
       setMutationError(null);
       invalidateGroup(queryClient, groupName);
-      void queryClient.invalidateQueries({ queryKey: ['me'] });
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setMutationError(extractApiError(err)),
   });
 
   const addManagerMutation = useMutation({
-    mutationFn: ({ userPk }: { userPk: number }) => addManager(groupName, userPk),
+    mutationFn: ({ userPk }: { userPk: number }) =>
+      addManager(groupName, userPk),
     onSuccess: () => {
       setMutationError(null);
       invalidateGroup(queryClient, groupName);
-      void queryClient.invalidateQueries({ queryKey: ['me'] });
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setMutationError(extractApiError(err)),
   });
@@ -86,11 +99,13 @@ const GroupPage: React.FC = () => {
 
   if (detailError) {
     const message =
-      detailErrorObj instanceof Error ? detailErrorObj.message : 'Failed to load group.';
-    const isNotFound = message.toLowerCase().includes('not found');
+      detailErrorObj instanceof Error
+        ? detailErrorObj.message
+        : "Failed to load group.";
+    const isNotFound = message.toLowerCase().includes("not found");
     return (
       <PageErrorCard
-        title={isNotFound ? 'Group not found' : 'Error'}
+        title={isNotFound ? "Group not found" : "Error"}
         message={message}
       />
     );
@@ -99,7 +114,7 @@ const GroupPage: React.FC = () => {
   if (!detail) return null;
 
   const resolvedGroups = allGroups ?? [];
-  const canManage = callerRole === 'leader' || callerRole === 'manager';
+  const canManage = callerRole === "leader" || callerRole === "manager";
 
   return (
     <>
@@ -109,7 +124,7 @@ const GroupPage: React.FC = () => {
         detail={detail}
         activeModal={activeModal}
         close={close}
-        onDisbandSuccess={() => navigate('/structure')}
+        onDisbandSuccess={() => navigate("/structure")}
       />
 
       <div className="max-w-5xl mx-auto p-8">
@@ -122,11 +137,26 @@ const GroupPage: React.FC = () => {
 
             <button
               className="flex items-center gap-1.5 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-100 transition-colors"
-              onClick={() => navigate(`/structure?focus=${encodeURIComponent(detail.name)}`)}
+              onClick={() =>
+                navigate(`/structure?focus=${encodeURIComponent(detail.name)}`)
+              }
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="5" r="3"/><circle cx="19" cy="19" r="3"/><circle cx="5" cy="19" r="3"/>
-                <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="19" y2="16"/><line x1="12" y1="12" x2="5" y2="16"/>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="5" r="3" />
+                <circle cx="19" cy="19" r="3" />
+                <circle cx="5" cy="19" r="3" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="12" x2="19" y2="16" />
+                <line x1="12" y1="12" x2="5" y2="16" />
               </svg>
               View in graph
             </button>
@@ -142,7 +172,7 @@ const GroupPage: React.FC = () => {
                     return (
                       <Link
                         key={pk}
-                        to={'/groups/' + encodeURIComponent(parent.name)}
+                        to={"/groups/" + encodeURIComponent(parent.name)}
                         className="block text-sm text-indigo-600 hover:underline"
                       >
                         {parent.name}
@@ -158,40 +188,53 @@ const GroupPage: React.FC = () => {
               <p className={`${SECTION_LABEL_CLS} mb-2`}>Stats</p>
               <div className="space-y-1 text-sm text-gray-700">
                 <p>
-                  <span className="font-medium">{detail.managers.length}</span> manager
-                  {detail.managers.length !== 1 ? 's' : ''}
+                  <span className="font-medium">{detail.managers.length}</span>{" "}
+                  manager
+                  {detail.managers.length !== 1 ? "s" : ""}
                 </p>
                 <p>
-                  <span className="font-medium">{detail.members.length}</span> member
-                  {detail.members.length !== 1 ? 's' : ''}
+                  <span className="font-medium">{detail.members.length}</span>{" "}
+                  member
+                  {detail.members.length !== 1 ? "s" : ""}
                 </p>
                 <p>
-                  <span className="font-medium">{detail.children.length}</span> subgroup
-                  {detail.children.length !== 1 ? 's' : ''}
+                  <span className="font-medium">{detail.children.length}</span>{" "}
+                  subgroup
+                  {detail.children.length !== 1 ? "s" : ""}
                 </p>
               </div>
             </div>
 
             {/* Group colour */}
-            {callerRole === 'leader' && detail && (
+            {callerRole === "leader" && detail && (
               <div>
-                <p className="text-sm font-medium text-gray-500 mb-2">Group colour</p>
+                <p className="text-sm font-medium text-gray-500 mb-2">
+                  Group colour
+                </p>
                 <ColorPicker
                   currentColor={detail.color}
                   groupName={detail.name}
                   groupPk={detail.pk}
-                  onColorChange={() => void queryClient.invalidateQueries({ queryKey: ['group', detail.name] })}
+                  onColorChange={() =>
+                    void queryClient.invalidateQueries({
+                      queryKey: ["group", detail.name],
+                    })
+                  }
                 />
               </div>
             )}
 
             {/* Action buttons */}
-            {callerRole === 'leader' && (
+            {callerRole === "leader" && (
               <div className="space-y-2">
-                <DashedButton color="red" onClick={() => open('resignLeader')}>
+                <DashedButton color="red" onClick={() => open("resignLeader")}>
                   Resign as leader
                 </DashedButton>
-                <DashedButton color="red" variant="dark" onClick={() => open('disband')}>
+                <DashedButton
+                  color="red"
+                  variant="dark"
+                  onClick={() => open("disband")}
+                >
                   Disband group
                 </DashedButton>
               </div>
@@ -232,13 +275,17 @@ const GroupPage: React.FC = () => {
                       >
                         {m.name}
                       </Link>
-                      {callerRole === 'leader' && (
+                      {callerRole === "leader" && (
                         <button
                           className="text-xs text-orange-500 hover:text-orange-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => removeManagerMutation.mutate({ userPk: m.pk })}
+                          onClick={() =>
+                            removeManagerMutation.mutate({
+                              username: m.username,
+                            })
+                          }
                           disabled={removeManagerMutation.isPending}
                         >
-                          {removeManagerMutation.isPending ? '…' : '← Member'}
+                          {removeManagerMutation.isPending ? "…" : "← Member"}
                         </button>
                       )}
                     </div>
@@ -254,7 +301,7 @@ const GroupPage: React.FC = () => {
                 {canManage && (
                   <button
                     className={`${MINI_LINK_BTN_CLS} font-medium`}
-                    onClick={() => open('addMember')}
+                    onClick={() => open("addMember")}
                   >
                     + Add member
                   </button>
@@ -270,19 +317,25 @@ const GroupPage: React.FC = () => {
                       >
                         {m.name}
                       </Link>
-                      {callerRole === 'leader' && (
+                      {callerRole === "leader" && (
                         <button
                           className="text-xs text-indigo-500 hover:text-indigo-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => addManagerMutation.mutate({ userPk: m.pk })}
+                          onClick={() =>
+                            addManagerMutation.mutate({ userPk: m.pk })
+                          }
                           disabled={addManagerMutation.isPending}
                         >
-                          {addManagerMutation.isPending ? '…' : '→ Manager'}
+                          {addManagerMutation.isPending ? "…" : "→ Manager"}
                         </button>
                       )}
                       {canManage && (
                         <button
                           className="text-xs text-red-500 hover:text-red-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => removeMemberMutation.mutate({ userPk: m.pk })}
+                          onClick={() =>
+                            removeMemberMutation.mutate({
+                              username: m.username,
+                            })
+                          }
                           disabled={removeMemberMutation.isPending}
                         >
                           Remove
@@ -302,9 +355,12 @@ const GroupPage: React.FC = () => {
               {detail.children.length > 0 ? (
                 <div className="space-y-1">
                   {detail.children.map((child) => (
-                    <div key={child.pk} className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded">
+                    <div
+                      key={child.pk}
+                      className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded"
+                    >
                       <Link
-                        to={'/groups/' + encodeURIComponent(child.name)}
+                        to={"/groups/" + encodeURIComponent(child.name)}
                         className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
                       >
                         {child.name}
@@ -316,12 +372,18 @@ const GroupPage: React.FC = () => {
                 <EmptyNote>No subgroups.</EmptyNote>
               )}
 
-              {callerRole === 'leader' && (
+              {callerRole === "leader" && (
                 <div className="mt-3 space-y-2">
-                  <DashedButton color="indigo" onClick={() => open('createSubgroup')}>
+                  <DashedButton
+                    color="indigo"
+                    onClick={() => open("createSubgroup")}
+                  >
                     + Create subgroup
                   </DashedButton>
-                  <DashedButton color="gray" onClick={() => open('addChildGroup')}>
+                  <DashedButton
+                    color="gray"
+                    onClick={() => open("addChildGroup")}
+                  >
                     + Connect existing group
                   </DashedButton>
                 </div>

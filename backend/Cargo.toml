@@ -8,6 +8,8 @@ name = "server"
 path = "src/main.rs"
 
 [dependencies]
+autentik-macros = { path = "macros" }
+const_format = "0.2"
 axum = { version = "0.7", features = ["macros"] }
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tokio = { version = "1", features = ["full"] }

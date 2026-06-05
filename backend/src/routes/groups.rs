@@ -1,8 +1,9 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
+use const_format::formatcp;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -10,35 +11,44 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::{
     audit,
     auth::AuthenticatedUser,
-    authentik::{resolve_role, AuthentikGroup, AuthentikUser},
+    authentik::{AuthentikGroup, AuthentikUser},
     error::AppError,
     models::{GroupChild, GroupDetail, GroupMember, GroupRole, GroupSummary, MutationSuccess},
+    routes::helpers::{
+        GroupAccess, GroupFromPath, Leader, ManagerOrLeader, PathParams, PathParamsGroupName,
+        PathParamsUserPK, UserFromPath,
+    },
     AppState,
 };
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/groups", get(list_groups))
-        .route("/api/groups/:group_name", get(get_group))
-        .route("/api/groups/:group_name/members", post(add_member))
-        .route(
-            "/api/groups/:group_name/members/:user_pk",
-            delete(remove_member),
-        )
-        .route("/api/groups/:group_name/managers", post(add_manager))
-        .route(
-            "/api/groups/:group_name/managers/:user_pk",
-            delete(remove_manager),
-        )
-        .route("/api/groups/:group_name", delete(disband_group))
-        .route("/api/groups/:group_name/leader/resign", post(resign_leader))
-        .route("/api/groups/:group_name/subgroups", post(create_subgroup))
-        .route("/api/groups/:group_name/children", post(add_child_group))
-        .route(
-            "/api/groups/:group_name/children/:child_group_name",
-            delete(detach_child_group),
-        )
-        .route("/api/groups/:group_name/color", put(set_group_color))
+    Router::new().nest(
+        "/groups",
+        Router::new().route("/", get(list_groups)).nest(
+            formatcp!("/:{}", PathParams::GroupName.to_static_str()),
+            Router::new()
+                .route("/", get(get_group))
+                .route("/", delete(disband_group))
+                .route("/members", post(add_member))
+                .route(
+                    formatcp!("/members/:{}", PathParams::UserPK.to_static_str()),
+                    delete(remove_member),
+                )
+                .route("/managers", post(add_manager))
+                .route(
+                    formatcp!("/managers/:{}", PathParams::UserPK.to_static_str()),
+                    delete(remove_manager),
+                )
+                .route("/leader/resign", post(resign_leader))
+                .route("/subgroups", post(create_child_group))
+                .route("/children", post(attach_child_group))
+                .route(
+                    formatcp!("/children/:{}", PathParams::ChildGroupName.to_static_str()),
+                    delete(detach_child_group),
+                )
+                .route("/color", put(set_group_color)),
+        ),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +260,7 @@ fn would_create_cycle(parent_pk: &str, child_pk: &str, all_groups: &[AuthentikGr
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/groups — list all groups (supports ?include_members=true).
+/// GET  — list all groups (supports ?include_members=true).
 async fn list_groups(
     State(state): State<AppState>,
     _caller: AuthenticatedUser,
@@ -401,13 +411,12 @@ async fn list_groups(
     }
 }
 
-/// GET /api/groups/:group_name — full group detail with members.
+/// GET /:group_name — full group detail with members.
 async fn get_group(
     State(state): State<AppState>,
     _caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupFromPath { group, .. }: GroupFromPath<PathParamsGroupName>,
 ) -> Result<Json<GroupDetail>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
     let users = state.authentik.get_users_by_pks(&group.users).await?;
 
     // Fetch all groups to compute direct children of this group.
@@ -426,33 +435,12 @@ async fn get_group(
     Ok(Json(detail))
 }
 
-/// POST /api/groups/:group_name/members — add a user as a regular member.
+/// POST /:group_name/members — add a user as a regular member.
 async fn add_member(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<ManagerOrLeader>,
     Json(body): Json<UserPkBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    let authorized = matches!(caller_role, GroupRole::Manager | GroupRole::Leader);
-
-    if !authorized {
-        audit::log(
-            &caller,
-            "add_member",
-            &group.pk,
-            &group.name,
-            Some(body.user_pk),
-            "forbidden",
-            Some("must be manager or leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be manager or leader of this group".to_string(),
-        ));
-    }
-
     // Idempotent: already a member — no audit, no change.
     if group.users.contains(&body.user_pk) {
         return Ok(Json(MutationSuccess::ok()));
@@ -485,85 +473,37 @@ async fn add_member(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// DELETE /api/groups/:group_name/members/:user_pk — remove a user from a group.
+/// DELETE /:group_name/members/:user_pk — remove a user from a group.
 async fn remove_member(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path((group_name, user_pk)): Path<(String, i64)>,
+    GroupAccess {
+        group,
+        caller,
+        role: caller_role,
+        ..
+    }: GroupAccess<ManagerOrLeader>,
+    UserFromPath { user: target, .. }: UserFromPath<PathParamsUserPK>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    let is_authorized = matches!(caller_role, GroupRole::Manager | GroupRole::Leader);
-
-    if !is_authorized {
-        audit::log(
-            &caller,
-            "remove_member",
-            &group.pk,
-            &group.name,
-            Some(user_pk),
-            "forbidden",
-            Some("must be manager or leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be manager or leader of this group".to_string(),
-        ));
-    }
-
     // Idempotent: not in group — no audit, no change.
-    if !group.users.contains(&user_pk) {
+    if !group.users.contains(&target.pk) {
         return Ok(Json(MutationSuccess::ok()));
     }
-
-    let target = state.authentik.get_user_by_pk(user_pk).await?;
 
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
     let (leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
-    let target_is_leader = leader_uuid == Some(target.uuid.as_str());
-    let target_is_manager = manager_uuids.contains(&target.uuid.as_str());
+    // target is leader, forbid.
+    if leader_uuid == Some(target.uuid.as_str()) {
+        return Err(AppError::Forbidden(
+            "removing leaders from a group is not allowed".to_string(),
+        ));
+    }
 
-    if matches!(caller_role, GroupRole::Manager) && target_is_manager {
-        audit::log(
-            &caller,
-            "remove_member",
-            &group.pk,
-            &group.name,
-            Some(user_pk),
-            "forbidden",
-            Some("managers cannot remove other managers"),
-        );
+    // target is manager and caller is not leader
+    let target_is_manager = manager_uuids.contains(&target.uuid.as_str());
+    if target_is_manager && caller_role != GroupRole::Leader {
         return Err(AppError::Forbidden(
             "managers cannot remove other managers".to_string(),
-        ));
-    }
-    if matches!(caller_role, GroupRole::Manager) && target_is_leader {
-        audit::log(
-            &caller,
-            "remove_member",
-            &group.pk,
-            &group.name,
-            Some(user_pk),
-            "forbidden",
-            Some("managers cannot remove the group leader"),
-        );
-        return Err(AppError::Forbidden(
-            "managers cannot remove the group leader".to_string(),
-        ));
-    }
-    if matches!(caller_role, GroupRole::Leader) && target_is_leader && target.uuid == caller.uuid {
-        audit::log(
-            &caller,
-            "remove_member",
-            &group.pk,
-            &group.name,
-            Some(user_pk),
-            "forbidden",
-            Some("leader cannot remove themselves; reassign leadership first"),
-        );
-        return Err(AppError::Forbidden(
-            "leader cannot remove themselves; reassign leadership first".to_string(),
         ));
     }
 
@@ -571,34 +511,27 @@ async fn remove_member(
     let new_users: Vec<i64> = group
         .users
         .iter()
-        .filter(|&&pk| pk != user_pk)
+        .filter(|&&pk| pk != target.pk)
         .cloned()
         .collect();
 
-    let new_attrs = if target_is_leader || target_is_manager {
+    let new_attrs = if target_is_manager {
         let mut updated = attrs.clone();
-        if target_is_leader {
-            if let Some(obj) = updated.as_object_mut() {
-                obj.remove("leader");
-            }
-        }
-        if target_is_manager {
-            let new_managers: Vec<serde_json::Value> = attrs
-                .get("managers")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter(|v| v.as_str() != Some(target.uuid.as_str()))
-                        .cloned()
-                        .collect()
-                })
-                .unwrap_or_default();
-            if let Some(obj) = updated.as_object_mut() {
-                obj.insert(
-                    "managers".to_string(),
-                    serde_json::Value::Array(new_managers),
-                );
-            }
+        let new_managers: Vec<serde_json::Value> = attrs
+            .get("managers")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter(|v| v.as_str() != Some(target.uuid.as_str()))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(obj) = updated.as_object_mut() {
+            obj.insert(
+                "managers".to_string(),
+                serde_json::Value::Array(new_managers),
+            );
         }
         Some(updated)
     } else {
@@ -618,40 +551,19 @@ async fn remove_member(
         "remove_member",
         &group.pk,
         &group.name,
-        Some(user_pk),
+        Some(target.pk),
         "ok",
         None,
     );
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// POST /api/groups/:group_name/managers — assign manager role to a member.
+/// POST /:group_name/managers — assign manager role to a member.
 async fn add_manager(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
     Json(body): Json<UserPkBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    let is_leader = matches!(caller_role, GroupRole::Leader);
-
-    if !is_leader {
-        audit::log(
-            &caller,
-            "add_manager",
-            &group.pk,
-            &group.name,
-            Some(body.user_pk),
-            "forbidden",
-            Some("must be leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be leader of this group".to_string(),
-        ));
-    }
-
     if !group.users.contains(&body.user_pk) {
         audit::log(
             &caller,
@@ -723,38 +635,16 @@ async fn add_manager(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// DELETE /api/groups/:group_name/managers/:user_pk — remove manager role.
+/// DELETE /:group_name/managers/:user_pk — remove manager role.
 async fn remove_manager(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path((group_name, user_pk)): Path<(String, i64)>,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
+    UserFromPath { user: target, .. }: UserFromPath<PathParamsUserPK>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    let is_leader = matches!(caller_role, GroupRole::Leader);
-
-    if !is_leader {
-        audit::log(
-            &caller,
-            "remove_manager",
-            &group.pk,
-            &group.name,
-            Some(user_pk),
-            "forbidden",
-            Some("must be leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be leader of this group".to_string(),
-        ));
-    }
-
-    let target = state.authentik.get_user_by_pk(user_pk).await?;
-
     let attrs = group.attributes.clone().unwrap_or_else(|| json!({}));
     let (_leader_uuid, manager_uuids) = parse_role_attrs(&attrs);
 
-    // Idempotent: not a manager — no audit, no change.
+    // No change.
     if !manager_uuids.contains(&target.uuid.as_str()) {
         return Ok(Json(MutationSuccess::ok()));
     }
@@ -783,41 +673,19 @@ async fn remove_manager(
         "remove_manager",
         &group.pk,
         &group.name,
-        Some(user_pk),
+        Some(target.pk),
         "ok",
         None,
     );
     Ok(Json(MutationSuccess::ok()))
 }
 
-
-/// POST /api/groups/:group_name/subgroups — create a new child group.
-async fn create_subgroup(
+/// POST /:group_name/subgroups — create a new child group.
+async fn create_child_group(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
     Json(body): Json<CreateSubgroupBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let group = resolve_group(&state, &group_name).await?;
-
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    let is_leader = matches!(caller_role, GroupRole::Leader);
-
-    if !is_leader {
-        audit::log(
-            &caller,
-            "create_subgroup",
-            &group.pk,
-            &group.name,
-            None,
-            "forbidden",
-            Some("must be leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be leader of this group".to_string(),
-        ));
-    }
-
     let name = body.name.trim().to_string();
     if name.is_empty() {
         audit::log(
@@ -889,35 +757,18 @@ async fn create_subgroup(
     })))
 }
 
-/// POST /api/groups/:group_name/children — attach an existing group as a child.
+/// POST /:group_name/children — attach an existing group as a child.
 /// Body: { "group_name": "ChildGroupName" }
-async fn add_child_group(
+async fn attach_child_group(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess {
+        group: parent,
+        caller,
+        ..
+    }: GroupAccess<Leader>,
     Json(body): Json<AddChildGroupBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    // 1. Resolve parent group.
-    let parent = resolve_group(&state, &group_name).await?;
-
-    // 2. Check caller is direct leader of parent (no parent-inheritance fallback).
-    let caller_role = resolve_role(&parent, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "add_child_group",
-            &parent.pk,
-            &parent.name,
-            None,
-            "forbidden",
-            Some("must be direct leader of the parent group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of the parent group".to_string(),
-        ));
-    }
-
-    // 3. Resolve child group.
+    // Resolve child group.
     let child = resolve_group(&state, &body.group_name).await?;
 
     // 4. Self-reference check.
@@ -982,46 +833,18 @@ async fn add_child_group(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// DELETE /api/groups/:group_name/children/:child_group_name — detach a child group from its parent.
+/// DELETE /:group_name/children/:child_group_name — detach a child group from its parent.
 async fn detach_child_group(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path((group_name, child_group_name)): Path<(String, String)>,
+    GroupAccess {
+        group: parent,
+        caller,
+        ..
+    }: GroupAccess<Leader>,
+    GroupFromPath { group: child, .. }: GroupFromPath<PathParamsGroupName>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    // 1. Resolve parent group.
-    let parent = resolve_group(&state, &group_name).await?;
-
-    // 2. Check caller is direct leader of parent (no parent-inheritance fallback).
-    let caller_role = resolve_role(&parent, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "detach_child_group",
-            &parent.pk,
-            &parent.name,
-            None,
-            "forbidden",
-            Some("must be direct leader of the parent group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of the parent group".to_string(),
-        ));
-    }
-
-    // 3. Resolve child group.
-    let child = resolve_group(&state, &child_group_name).await?;
-
     // 4. Verify child is actually a child of parent.
     if !child.parents.contains(&parent.pk) {
-        audit::log(
-            &caller,
-            "detach_child_group",
-            &parent.pk,
-            &parent.name,
-            None,
-            "bad_request",
-            Some("group is not a child of this group"),
-        );
         return Err(AppError::BadRequest(
             "group is not a child of this group".to_string(),
         ));
@@ -1056,35 +879,14 @@ async fn detach_child_group(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// DELETE /api/groups/:group_name — disband (permanently delete) a group.
+/// DELETE /:group_name — disband (permanently delete) a group.
 /// Only the direct leader of the group may call this (no parent-inheritance fallback).
 /// Blocked if the group has any subgroups.
 async fn disband_group(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    // 1. Resolve group.
-    let group = resolve_group(&state, &group_name).await?;
-
-    // 2. Caller must be direct leader only — no parent fallback.
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "disband_group",
-            &group.pk,
-            &group.name,
-            None,
-            "forbidden",
-            Some("must be direct leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of this group".to_string(),
-        ));
-    }
-
-    // 3. Block disbanding if group has subgroups.
+    // Block disbanding if group has subgroups.
     let all_groups = state.authentik.get_groups_all().await?;
     let has_subgroups = all_groups
         .iter()
@@ -1124,35 +926,14 @@ async fn disband_group(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// POST /api/groups/:group_name/leader/resign — resign as leader, appoint successor.
+/// POST /:group_name/leader/resign — resign as leader, appoint successor.
 /// Body: { "successor_pk": <i64> }
 async fn resign_leader(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
     Json(body): Json<ResignLeaderBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    // 1. Resolve group.
-    let group = resolve_group(&state, &group_name).await?;
-
-    // 2. Check caller is direct leader.
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "resign_leader",
-            &group.pk,
-            &group.name,
-            Some(body.successor_pk),
-            "forbidden",
-            Some("must be direct leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of this group".to_string(),
-        ));
-    }
-
-    // 3. Cannot resign to yourself.
+    // Cannot resign to yourself.
     if body.successor_pk == caller.pk {
         audit::log(
             &caller,
@@ -1240,36 +1021,15 @@ async fn resign_leader(
     Ok(Json(MutationSuccess::ok()))
 }
 
-/// PUT /api/groups/:group_name/color — set or clear the display color for a group.
+/// PUT /:group_name/color — set or clear the display color for a group.
 /// Body: { "color": "#rrggbb" } — or "" to clear.
 /// Only the direct leader of the group may call this (no parent-inheritance fallback).
 async fn set_group_color(
     State(state): State<AppState>,
-    caller: AuthenticatedUser,
-    Path(group_name): Path<String>,
+    GroupAccess { group, caller, .. }: GroupAccess<ManagerOrLeader>,
     Json(body): Json<SetColorBody>,
 ) -> Result<Json<MutationSuccess>, AppError> {
-    // 1. Resolve group by name.
-    let group = resolve_group(&state, &group_name).await?;
-
-    // 2. Caller must be direct leader only — no parent fallback.
-    let caller_role = resolve_role(&group, &caller.uuid, caller.pk);
-    if !matches!(caller_role, GroupRole::Leader) {
-        audit::log(
-            &caller,
-            "set_group_color",
-            &group.pk,
-            &group.name,
-            None,
-            "forbidden",
-            Some("must be direct leader of this group"),
-        );
-        return Err(AppError::Forbidden(
-            "must be direct leader of this group".to_string(),
-        ));
-    }
-
-    // 3. Validate color: must be "#rrggbb" (6-digit hex) or "" to clear.
+    // Validate color: must be "#rrggbb" (6-digit hex) or "" to clear.
     let color_value: Option<serde_json::Value> = if body.color.is_empty() {
         // Clear: remove the key.
         None

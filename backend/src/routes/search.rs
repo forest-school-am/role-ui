@@ -23,8 +23,8 @@ const SEARCH_LINK_GEN_JS: &str = r#"function generateSearchLink(obj) {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/search", get(search))
-        .route("/api/search-link-gen", get(search_link_gen))
+        .route("/search", get(search))
+        .route("/search-link-gen", get(search_link_gen))
 }
 
 // ---------------------------------------------------------------------------
@@ -104,9 +104,7 @@ async fn search(
 }
 
 /// GET /api/search-link-gen
-/// Unauthenticated. Returns a JavaScript snippet with a generateSearchLink(obj)
-/// function that maps __search_type to a URL. Extend this when new object types
-/// are added server-side.
+/// Intentionally unauthenticated — returns a static JS snippet with no user data.
 async fn search_link_gen() -> Response {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
@@ -114,4 +112,3 @@ async fn search_link_gen() -> Response {
     )
         .into_response()
 }
-
