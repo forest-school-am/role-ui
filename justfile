@@ -39,7 +39,7 @@ lint:
     (cd frontend && npx fallow) || rc=1
     echo ""
     echo "── clippy ──────────────────────────────────────────────────"
-    cargo clippy --manifest-path backend/Cargo.toml -- -W dead_code || rc=1
+    cargo clippy --manifest-path backend/Cargo.toml -- -W clippy::all -W dead_code || rc=1
     exit $rc
 
 # Build the frontend once (Vite/React → frontend/dist/)
