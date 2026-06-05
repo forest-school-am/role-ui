@@ -30,6 +30,7 @@ const OAuthCallback: React.FC = () => {
     if (!code) {
       const errorParam = params.get('error');
       const desc = params.get('error_description');
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(
         errorParam
           ? `authentik error: ${errorParam}${desc ? ` — ${desc}` : ''}`

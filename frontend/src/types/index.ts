@@ -32,19 +32,6 @@ export interface User {
   groups: GroupMembership[];
 }
 
-// Summary of a group, used in the groups list (GET /api/groups)
-interface GroupSummary {
-  pk: string;            // UUID
-  name: string;
-  is_superuser: boolean;
-  parent_pks: string[];  // UUID[]
-  leader_uuid: string | null;  // UUID
-  manager_uuids: string[];     // UUID[]
-  member_count: number;
-  color?: string;
-  is_virtual?: boolean;
-}
-
 // A single member inside a group detail response
 export interface GroupMember {
   pk: number;

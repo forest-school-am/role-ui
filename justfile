@@ -35,6 +35,9 @@ _authentik-seed:
 lint:
     #!/usr/bin/env bash
     rc=0
+    echo "── eslint ──────────────────────────────────────────────────"
+    (cd frontend && npm run lint) || rc=1
+    echo ""
     echo "── fallow ──────────────────────────────────────────────────"
     (cd frontend && npx fallow) || rc=1
     echo ""

@@ -41,7 +41,6 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
   const generateLink = useMemo<((obj: SearchResult) => string) | null>(() => {
     if (!linkGenJs) return null;
     try {
-      // eslint-disable-next-line no-new-func
       return new Function('obj', `${linkGenJs}; return generateSearchLink(obj);`) as (obj: SearchResult) => string;
     } catch {
       return null;

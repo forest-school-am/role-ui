@@ -7,6 +7,7 @@ interface AuthContextValue {
   logout: () => void;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- context files intentionally export non-components
 export const AuthContext = createContext<AuthContextValue>({
   token: null,
   userUuid: null,

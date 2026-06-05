@@ -55,16 +55,6 @@ export async function removeManager(
   return response.data;
 }
 
-export async function assignLeader(
-  groupName: string,
-  userPk: number,
-): Promise<MutationSuccess> {
-  const response = await apiClient.put<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/leader`,
-    { user_pk: userPk },
-  );
-  return response.data;
-}
 
 export async function createSubgroup(
   groupName: string,
