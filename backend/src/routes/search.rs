@@ -45,7 +45,6 @@ struct SearchQuery {
 /// Returns a mixed array of user and group results annotated with __search_type.
 async fn search(
     State(state): State<AppState>,
-    _caller: AuthenticatedUser,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
     let q = match params.q.as_deref() {
@@ -67,21 +66,19 @@ async fn search(
     let (user_results, group_results) = match (want_users, want_groups) {
         (true, true) => {
             let (users, groups) = tokio::try_join!(
-                state.authentik.search_users(&q, 20),
-                state.authentik.get_groups_all(),
+                state.authentik_client.search_users(&q, 20),
+                state.authentik_client.get_groups_all(),
             )?;
             (users, groups)
         }
-        (true, false) => (state.authentik.search_users(&q, 20).await?, vec![]),
-        (false, true) => (vec![], state.authentik.get_groups_all().await?),
+        (true, false) => (state.authentik_client.search_users(&q, 20).await?, vec![]),
+        (false, true) => (vec![], state.authentik_client.get_groups_all().await?),
         (false, false) => (vec![], vec![]),
     };
 
     for u in user_results {
         results.push(json!({
             "__search_type": "user",
-            "pk": u.pk,
-            "uuid": u.uuid,
             "username": u.username,
             "name": u.name,
         }));
@@ -94,9 +91,7 @@ async fn search(
         }
         results.push(json!({
             "__search_type": "group",
-            "pk": g.pk,
             "name": g.name,
-            "is_superuser": g.is_superuser,
         }));
     }
 

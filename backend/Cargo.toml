@@ -28,3 +28,8 @@ sha2 = "0.10"
 moka = { version = "0.12", features = ["future"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 urlencoding = "2"
+enum-map = { version = "3.0.0-beta.2" , features = ["serde"]}
+itertools = "0.14.0"
+regex = "1.12.3"
+
+authentik_api = { path = "../../authentik_api_2026_5_2" }

@@ -9,7 +9,8 @@ use moka::future::Cache;
 use sha2::{Digest, Sha256};
 
 use crate::{error::AppError, AppState};
-
+use crate::authentik::AuthentikUser;
+use crate::routes::api_models::User;
 // ---------------------------------------------------------------------------
 // Authenticated user — placed in request extensions by the extractor
 // ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ fn token_hash(token: &str) -> String {
 // Cache constructors (called once at startup)
 // ---------------------------------------------------------------------------
 
-pub fn build_token_cache() -> Cache<String, AuthenticatedUser> {
+pub fn build_token_cache() -> Cache<String, String> {
     Cache::builder()
         .time_to_live(std::time::Duration::from_secs(60))
         .max_capacity(10_000)
@@ -49,7 +50,7 @@ pub fn build_token_cache() -> Cache<String, AuthenticatedUser> {
 async fn resolve_authenticated_user(
     headers: &HeaderMap,
     state: &AppState,
-) -> Result<AuthenticatedUser, AppError> {
+) -> Result<User, AppError> {
     let auth_header = headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
@@ -62,20 +63,21 @@ async fn resolve_authenticated_user(
     let key = token_hash(token);
 
     if let Some(user) = state.token_cache.get(&key).await {
-        return Ok(user);
+        return Ok(state.authentik_state.user_by_username(&user)?);
     }
 
-    let uuid = state.authentik.validate_user_token(token).await?;
-    let auth_user = state.authentik.get_user_by_uuid(&uuid).await?;
+    let uuid = state.authentik_client.validate_user_token(token).await?;
+    let auth_user = state.authentik_client.get_user_by_uuid(&uuid).await?;
+    let user = state.authentik_state.user_by_username(&auth_user.username);
 
-    let user = AuthenticatedUser {
-        uuid,
-        username: auth_user.username,
-        pk: auth_user.pk,
-    };
+    if let Ok(user) = user {
+        state.token_cache.insert(key, auth_user.username).await;
+        Ok(user)
+    } else {
+        let _ = state.tx.send(()).await;
+        Err(AppError::Unauthorized)
+    }
 
-    state.token_cache.insert(key, user.clone()).await;
-    Ok(user)
 }
 
 // ---------------------------------------------------------------------------
@@ -95,19 +97,3 @@ pub async fn auth_middleware(
 // ---------------------------------------------------------------------------
 // FromRequestParts — handlers that need the caller identity use this extractor
 // ---------------------------------------------------------------------------
-
-#[async_trait]
-impl FromRequestParts<AppState> for AuthenticatedUser {
-    type Rejection = AppError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        // Middleware already validated and inserted the user — reuse it.
-        return match parts.extensions.get::<AuthenticatedUser>() {
-            Some(user) => Ok(user.clone()),
-            None => Err(AppError::Unauthorized),
-        };
-    }
-}

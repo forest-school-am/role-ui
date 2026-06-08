@@ -1,15 +1,19 @@
 use std::collections::HashMap;
-
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc};
 use autentik_macros::labeled_enum;
-use axum::extract::{FromRequestParts, Path};
-
+use axum::async_trait;
+use axum::extract::{FromRequest, FromRequestParts, Path};
+use axum::http::request::Parts;
+use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
 use crate::{
     auth::AuthenticatedUser,
     authentik::{resolve_role, AuthentikGroup, AuthentikUser},
     error::AppError,
-    models::GroupRole,
     AppState,
 };
+use crate::routes::api_models::{Group, GroupRole, User};
 
 labeled_enum! {
     pub enum PathParams {
@@ -21,14 +25,15 @@ labeled_enum! {
 }
 
 pub struct GroupFromPath<PP: PathParamsVariant> {
-    pub group: AuthentikGroup,
+    pub group: Group,
     pub _p: std::marker::PhantomData<PP>,
 }
 
 pub struct UserFromPath<PP: PathParamsVariant> {
-    pub user: AuthentikUser,
+    pub user: User,
     pub _p: std::marker::PhantomData<PP>,
 }
+
 
 impl<PP: PathParamsVariant> FromRequestParts<AppState> for GroupFromPath<PP> {
     type Rejection = AppError;
@@ -55,9 +60,8 @@ impl<PP: PathParamsVariant> FromRequestParts<AppState> for GroupFromPath<PP> {
             let group_name = params.get(PP::to_static_str()).ok_or_else(|| {
                 AppError::BadRequest(format!("missing `{}` parameter", PP::to_static_str()))
             })?;
-            let group = state.authentik.get_group_by_name(group_name).await?;
             Ok(GroupFromPath {
-                group,
+                group: state.authentik_state.get_group_by_name(&group_name)?,
                 _p: std::marker::PhantomData,
             })
         })
@@ -89,7 +93,7 @@ impl<PP: PathParamsVariant> FromRequestParts<AppState> for UserFromPath<PP> {
             let username = params.get(PP::to_static_str()).ok_or_else(|| {
                 AppError::BadRequest(format!("missing `{}` parameter", PP::to_static_str()))
             })?;
-            let user = state.authentik.get_user_by_username(username).await?;
+            let user = state.authentik_state.user_by_username(username)?;
             Ok(UserFromPath {
                 user,
                 _p: std::marker::PhantomData,
@@ -131,8 +135,8 @@ impl RoleCheck for ManagerOrLeader {
 }
 
 pub struct GroupAccess<R: RoleCheck> {
-    pub group: AuthentikGroup,
-    pub caller: AuthenticatedUser,
+    pub group: Group,
+    pub caller: User,
     pub role: GroupRole,
     _r: std::marker::PhantomData<R>,
 }
@@ -156,16 +160,57 @@ impl<R: RoleCheck> FromRequestParts<AppState> for GroupAccess<R> {
         Self: 'async_trait,
     {
         Box::pin(async move {
-            let caller = AuthenticatedUser::from_request_parts(parts, state).await?;
+            let caller = User::from_request_parts(parts, state).await?;
             let GroupFromPath { group, .. } =
                 GroupFromPath::<PathParamsGroupName>::from_request_parts(parts, state).await?;
-            let role = resolve_role(&group, &caller.uuid);
-            R::check(&role)?;
-            Ok(GroupAccess {
-                group,
-                caller,
-                role,
-                _r: std::marker::PhantomData,
+            if let Some(role) = resolve_role(&group, &caller.username){
+                R::check(&role)?;
+                Ok(GroupAccess {
+                    group,
+                    caller,
+                    role,
+                    _r: std::marker::PhantomData,
+                })
+            } else {
+                Err(AppError::Forbidden(format!("Not a group member")))
+            }
+        })
+    }
+}
+
+#[async_trait]
+impl FromRequestParts<AppState> for User {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        // Middleware already validated and inserted the user — reuse it.
+        return match parts.extensions.get::<User>() {
+            Some(user) => Ok(user.clone()),
+            None => Err(AppError::Unauthorized),
+        };
+    }
+}
+
+
+pub struct WriteLock {
+    guard: OwnedMutexGuard<()>
+}
+
+impl FromRequestParts<AppState> for WriteLock {
+    type Rejection = AppError;
+
+    fn from_request_parts<'life0, 'life1, 'async_trait>(parts: &'life0 mut Parts, state: &'life1 AppState) -> Pin<Box<dyn Future<Output=Result<Self, Self::Rejection>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait
+    {
+        Box::pin(async move {
+            Ok(WriteLock {
+                guard: Arc::clone(&state.write_mutex).lock_owned().await,
             })
         })
     }

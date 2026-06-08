@@ -22,7 +22,7 @@ up:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    cargo build --manifest-path backend/Cargo.toml
+    # cargo build --manifest-path backend/Cargo.toml
     pkill -f "target/debug/server" || true
     pkill -f "vite build --watch" || true
 

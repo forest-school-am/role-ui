@@ -20,7 +20,7 @@
       devShells.${system}.default = pkgs.mkShell {
         # Pick the language shells this project needs:
         inputsFrom = [
-          (import "${dev-shells-src}/shells/rust.nix"   { inherit pkgs; })
+          (import "${dev-shells-src}/shells/rust-stable.nix"   { inherit pkgs; })
           # (import "${dev-shells-src}/shells/python.nix" { inherit pkgs; })
           # (import "${dev-shells-src}/shells/sage.nix"   { inherit pkgs; })
           # (import "${dev-shells-src}/shells/node.nix"   { inherit pkgs; })

@@ -1,6 +1,7 @@
 use crate::auth::AuthenticatedUser;
 use serde::Serialize;
-
+use crate::authentik::AuthentikUser;
+use crate::routes::api_models::User;
 // ---------------------------------------------------------------------------
 // Audit event — written as a JSON line to stdout on every write attempt.
 // ---------------------------------------------------------------------------
@@ -8,14 +9,11 @@ use serde::Serialize;
 #[derive(Serialize)]
 struct AuditEvent<'a> {
     timestamp: String,
-    actor_pk: i64,
-    actor_uuid: &'a str,
     actor_username: &'a str,
     action: &'a str,
-    group_pk: &'a str,
     group_name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    target_user_pk: Option<i64>,
+    target_username: Option<&'a str>,
     result: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<&'a str>,
@@ -27,23 +25,19 @@ struct AuditEvent<'a> {
 /// `detail` carries the rejection reason on non-ok results, or extra context
 /// on success (e.g. the name of a newly created subgroup).
 pub fn log(
-    caller: &AuthenticatedUser,
+    caller: &User,
     action: &str,
-    group_pk: &str,
     group_name: &str,
-    target_user_pk: Option<i64>,
+    target_username: Option<&str>,
     result: &str,
     detail: Option<&str>,
 ) {
     let event = AuditEvent {
         timestamp: chrono::Utc::now().to_rfc3339(),
-        actor_pk: caller.pk,
-        actor_uuid: &caller.uuid,
         actor_username: &caller.username,
         action,
-        group_pk,
         group_name,
-        target_user_pk,
+        target_username,
         result,
         detail,
     };

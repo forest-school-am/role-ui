@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Arc;
-
+use std::sync::{Arc};
+use std::time::Duration;
 use axum::{http::header, response::IntoResponse, Router};
 use moka::future::Cache;
 use tower_http::cors::CorsLayer;
@@ -13,27 +13,23 @@ mod auth;
 mod authentik;
 mod config;
 mod error;
-mod models;
 mod routes;
+mod authentik_state;
 
 use auth::{build_token_cache, AuthenticatedUser};
-use authentik::AuthentikClient;
 use config::Config;
-
-// ---------------------------------------------------------------------------
-// AppState — shared across all handlers
-// ---------------------------------------------------------------------------
+use crate::authentik_state::{AuthentikStateWrapper};
+use tokio::sync::{mpsc, Mutex};
+use tokio::time::MissedTickBehavior;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub authentik: Arc<AuthentikClient>,
-    /// token_hash → AuthenticatedUser (60-second TTL)
-    pub token_cache: Arc<Cache<String, AuthenticatedUser>>,
+    // pub authentik_client: Arc<>,
+    pub token_cache: Arc<Cache<String, String>>,
+    pub authentik_state: Arc<AuthentikStateWrapper>,
+    pub tx: mpsc::Sender<()>,
+    pub write_mutex: Arc<Mutex<()>>,
 }
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -55,15 +51,40 @@ async fn main() -> anyhow::Result<()> {
     let static_dir = config.static_dir.clone();
 
     // Build the authentik API client.
-    let authentik = Arc::new(AuthentikClient::new(
+    let authentik_client = Arc::new(AuthentikClient::new(
         config.authentik_base_url.clone(),
         config.authentik_api_token.clone(),
     ));
+    let (tx, mut rx) = mpsc::channel::<()>(100);
+
+    let state_wrapper = Arc::new(AuthentikStateWrapper::new());
+    let client_copy = authentik_client.clone();
+    let state_wrapper_copy = state_wrapper.clone();
+
+    tokio::spawn(async move {
+        while let Some(_) = rx.recv().await {
+            println!("Updating database");
+            state_wrapper_copy.update(&client_copy).await.unwrap_or_else(|e| println!("{}", e));
+        }
+    });
+
+    let tx_copy = tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_mins(5));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            tx_copy.send(()).await.unwrap_or_else(|e| println!("{}", e));
+        }
+    });
 
     // Build shared state.
     let state = AppState {
-        authentik,
+        authentik_client,
         token_cache: Arc::new(build_token_cache()),
+        authentik_state: state_wrapper,
+        tx,
+        write_mutex: Mutex::new(())
     };
 
     // Build the SPA static file service.
