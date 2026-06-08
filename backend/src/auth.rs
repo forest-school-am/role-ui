@@ -65,13 +65,15 @@ async fn resolve_authenticated_user(
         return Ok(state.authentik_state.user_by_username(&user)?);
     }
 
-    let username = state.authentik_client.validate_user_token(token).await?;
+    let username = state.authentik_client.validate_user_token(token).await
+        .map_err(|e| { tracing::warn!("token validation failed: {e}"); e })?;
     let user = state.authentik_state.user_by_username(&username);
 
     if let Ok(user) = user {
         state.token_cache.insert(key, username).await;
         Ok(user)
     } else {
+        tracing::warn!("token valid for '{}' but user not found in state; triggering refresh", username);
         let _ = state.tx.send(()).await;
         Err(AppError::Unauthorized)
     }

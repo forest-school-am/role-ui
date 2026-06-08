@@ -63,13 +63,13 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
           <div className="space-y-4">
             <p className="text-sm text-gray-500">@{user.username}</p>
 
-            {user.social.length > 0 && (
+            {user.logins.length > 0 && (
               <div>
-                <p className={`${SECTION_LABEL_CLS} mb-1`}>Social</p>
+                <p className={`${SECTION_LABEL_CLS} mb-1`}>Contact</p>
                 <div className="space-y-1">
-                  {user.social.slice(0, 3).map((s, i) => (
+                  {user.logins.slice(0, 3).map((s, i) => (
                     <p key={i} className="text-sm text-gray-700">
-                      <span className="font-medium">{s.type}:</span> {s.address}
+                      <span className="font-medium">{s.kind}:</span> {s.address}
                     </p>
                   ))}
                 </div>

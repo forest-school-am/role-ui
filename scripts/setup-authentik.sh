@@ -214,13 +214,18 @@ else
             -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
             "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
             | jq -r '.results[] | select(.name | test("OpenID.*openid"; "i")) | .pk' | head -1) || true
-        [[ -n "$auth_flow" && -n "$inval_flow" && -n "$openid_mapping" ]] && break
-        info "  Not ready yet (attempt ${i}/24) — auth_flow=${auth_flow:-missing} inval_flow=${inval_flow:-missing} openid_mapping=${openid_mapping:-missing}. Retrying in 5s..."
+        profile_mapping=$(curl -sf \
+            -H "Authorization: Bearer ${BOOTSTRAP_TOKEN}" \
+            "${AUTHENTIK_BASE_URL}/api/v3/propertymappings/all/?page_size=100" \
+            | jq -r '.results[] | select(.name | test("OpenID.*profile"; "i")) | .pk' | head -1) || true
+        [[ -n "$auth_flow" && -n "$inval_flow" && -n "$openid_mapping" && -n "$profile_mapping" ]] && break
+        info "  Not ready yet (attempt ${i}/24) — auth_flow=${auth_flow:-missing} inval_flow=${inval_flow:-missing} openid_mapping=${openid_mapping:-missing} profile_mapping=${profile_mapping:-missing}. Retrying in 5s..."
         sleep 5
     done
-    [[ -n "$auth_flow" ]]       || error "Authorization flow never appeared after 2 minutes."
-    [[ -n "$inval_flow" ]]      || error "Invalidation flow never appeared after 2 minutes."
-    [[ -n "$openid_mapping" ]]  || error "OpenID scope mapping never appeared after 2 minutes."
+    [[ -n "$auth_flow" ]]        || error "Authorization flow never appeared after 2 minutes."
+    [[ -n "$inval_flow" ]]       || error "Invalidation flow never appeared after 2 minutes."
+    [[ -n "$openid_mapping" ]]   || error "OpenID scope mapping never appeared after 2 minutes."
+    [[ -n "$profile_mapping" ]]  || error "Profile scope mapping never appeared after 2 minutes."
 
     info "Creating OIDC provider '${OIDC_CLIENT_ID}' ..."
     provider_pk=$(curl -sf \
@@ -235,7 +240,7 @@ else
             \"authorization_flow\": \"${auth_flow}\",
             \"invalidation_flow\": \"${inval_flow}\",
             \"grant_types\": [\"authorization_code\", \"refresh_token\"],
-            \"property_mappings\": [\"${openid_mapping}\"],
+            \"property_mappings\": [\"${openid_mapping}\", \"${profile_mapping}\"],
             \"sub_mode\": \"user_uuid\",
             \"signing_key\": null,
             \"access_token_validity\": \"hours=1\"

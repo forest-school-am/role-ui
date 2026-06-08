@@ -103,10 +103,6 @@ impl AuthentikStateWrapper {
         let lock = self.state.read().unwrap();
         Ok(lock.state.group_id_to_authentik_group(groupname)?.clone())
     }
-
-    pub fn all_compat_groups(&self) -> Vec<AuthentikGroup> {
-        self.state.read().unwrap().state.compat_groups.clone()
-    }
 }
 
 async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<AuthentikState, AppError> {
@@ -384,8 +380,8 @@ impl AuthentikState {
 
 type UserPkType = i64;
 type GroupPkType = String;
-type UserIdType = String;
-type GroupIdType = String;
+pub type UserIdType = String;
+pub type GroupIdType = String;
 
 trait CompatType {}
 struct Authentik {}

@@ -8,8 +8,8 @@ import {
   disbandGroup,
 } from "../../api/groups";
 import { extractApiError } from "../../api/client";
-import type { GroupMember } from "../../types";
-import { searchUsers, type UserSummary } from "../../api/users";
+import type { UserLink } from "../../types";
+import { searchUsers } from "../../api/users";
 import ModalShell from "../ui/ModalShell";
 import ModalActions from "../ui/ModalActions";
 import { useDebounce } from "../../hooks/useDebounce";
@@ -26,26 +26,23 @@ function makeMutationErrorHandler(
 // Add Member Modal
 // ---------------------------------------------------------------------------
 interface AddMemberModalProps {
-  groupPk: string;
   groupName: string;
   onClose: () => void;
 }
 
 export const AddMemberModal: React.FC<AddMemberModalProps> = ({
-  groupPk,
   groupName,
   onClose,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchResults, setSearchResults] = useState<UserSummary[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
+  const [searchResults, setSearchResults] = useState<UserLink[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserLink | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const queryClient = useQueryClient();
 
   const debouncedSearch = useDebounce(searchTerm, 300);
 
-  // Fire search whenever the debounced term changes
   React.useEffect(() => {
     if (debouncedSearch.length < 2) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -56,9 +53,9 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   }, [debouncedSearch]);
 
   const mutation = useMutation({
-    mutationFn: (userPk: number) => addMember(groupName, userPk),
+    mutationFn: (username: string) => addMember(groupName, username),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["group", groupPk] });
+      void queryClient.invalidateQueries({ queryKey: ["group", groupName] });
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
       onClose();
     },
@@ -73,7 +70,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setLocalError("Please search for and select a user.");
       return;
     }
-    mutation.mutate(selectedUser.pk);
+    mutation.mutate(selectedUser.username);
   };
 
   return (
@@ -147,11 +144,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               />
               {searchResults.length > 0 && (
                 <ul className="absolute z-10 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-                  {searchResults.map((u) => (
+                  {searchResults.map((u, idx) => (
                     <li
-                      key={u.pk}
+                      key={u.username}
                       className={`px-3 py-2 text-sm text-gray-800 cursor-pointer ${
-                        searchResults.indexOf(u) === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
+                        idx === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
                       }`}
                       onClick={() => {
                         setSelectedUser(u);
@@ -183,13 +180,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
 // Create Subgroup Modal
 // ---------------------------------------------------------------------------
 interface CreateSubgroupModalProps {
-  groupPk: string;
   groupName: string;
   onClose: () => void;
 }
 
 export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
-  groupPk,
   groupName,
   onClose,
 }) => {
@@ -202,7 +197,8 @@ export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
       createSubgroup(groupName, subgroupName),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
-      void queryClient.invalidateQueries({ queryKey: ["group", groupPk] });
+      void queryClient.invalidateQueries({ queryKey: ["group", groupName] });
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
       onClose();
     },
     onError: makeMutationErrorHandler(setLocalError),
@@ -260,13 +256,11 @@ export const CreateSubgroupModal: React.FC<CreateSubgroupModalProps> = ({
 // Add Child Group Modal
 // ---------------------------------------------------------------------------
 interface AddChildGroupModalProps {
-  parentGroupPk: string;
   parentGroupName: string;
   onClose: () => void;
 }
 
 export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
-  parentGroupPk,
   parentGroupName,
   onClose,
 }) => {
@@ -278,9 +272,7 @@ export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
     mutationFn: (name: string) => addChildGroup(parentGroupName, name),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["group", parentGroupPk],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["group", parentGroupName] });
       onClose();
     },
     onError: makeMutationErrorHandler(setLocalError),
@@ -334,28 +326,26 @@ export const AddChildGroupModal: React.FC<AddChildGroupModalProps> = ({
 // Resign Leader Modal
 // ---------------------------------------------------------------------------
 interface ResignLeaderModalProps {
-  groupPk: string;
   groupName: string;
-  members: GroupMember[];
+  members: UserLink[];
   onClose: () => void;
 }
 
 export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
-  groupPk,
   groupName,
   members,
   onClose,
 }) => {
-  const [selectedPk, setSelectedPk] = useState<number | "">("");
+  const [selectedUsername, setSelectedUsername] = useState<string>("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: (successorPk: number) => resignLeader(groupName, successorPk),
+    mutationFn: (username: string) => resignLeader(groupName, username),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
-      void queryClient.invalidateQueries({ queryKey: ["group", groupPk] });
+      void queryClient.invalidateQueries({ queryKey: ["group", groupName] });
       void queryClient.invalidateQueries({ queryKey: ["me"] });
       onClose();
     },
@@ -366,11 +356,11 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
-    if (selectedPk === "") {
+    if (!selectedUsername) {
       setLocalError("Please select a successor.");
       return;
     }
-    mutation.mutate(selectedPk);
+    mutation.mutate(selectedUsername);
   };
 
   return (
@@ -389,17 +379,13 @@ export const ResignLeaderModal: React.FC<ResignLeaderModalProps> = ({
           <select
             id="successorSelect"
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-            value={selectedPk}
-            onChange={(e) =>
-              setSelectedPk(
-                e.target.value === "" ? "" : parseInt(e.target.value, 10),
-              )
-            }
+            value={selectedUsername}
+            onChange={(e) => setSelectedUsername(e.target.value)}
             disabled={members.length === 0}
           >
             <option value="">— Select a member —</option>
             {members.map((m) => (
-              <option key={m.pk} value={m.pk}>
+              <option key={m.username} value={m.username}>
                 {m.name} (@{m.username})
               </option>
             ))}

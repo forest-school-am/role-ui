@@ -86,18 +86,74 @@ impl AuthentikClient {
         }
     }
 
-    // Validates the caller's bearer token by calling /api/v3/core/users/me/ with
-    // that token. Returns the validated user's username.
+    // Validates the caller's OIDC bearer token via the userinfo endpoint and
+    // returns the validated user's preferred_username.
     pub async fn validate_user_token(&self, token: &str) -> Result<String, AppError> {
-        let temp = Configuration {
-            base_path: self.config.base_path.clone(),
-            bearer_access_token: Some(token.to_string()),
-            ..Default::default()
-        };
-        let session = core_api::core_users_me_retrieve(&temp)
+        // Strip the /api/v3 suffix from base_path to get the authentik root URL.
+        let base = self.config.base_path.trim_end_matches("/api/v3");
+        let url = format!("{}/application/o/userinfo/", base);
+
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .bearer_auth(token)
+            .send()
             .await
-            .map_err(|_| AppError::Unauthorized)?;
-        Ok(session.user.username)
+            .map_err(|e| {
+                tracing::warn!("userinfo request failed: {e}");
+                AppError::Unauthorized
+            })?;
+
+        if !resp.status().is_success() {
+            tracing::warn!("userinfo endpoint rejected token: HTTP {}", resp.status());
+            return Err(AppError::Unauthorized);
+        }
+
+        let claims: serde_json::Value = resp.json().await.map_err(|e| {
+            tracing::warn!("userinfo response not JSON: {e}");
+            AppError::Unauthorized
+        })?;
+
+        if let Some(username) = claims.get("preferred_username").and_then(|v| v.as_str()) {
+            return Ok(username.to_string());
+        }
+
+        // Tokens issued before the profile scope was added only contain `sub`
+        // (the user UUID).  Fall back to looking up the username via the admin API.
+        let sub = claims
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                tracing::warn!("userinfo has neither preferred_username nor sub; claims: {claims}");
+                AppError::Unauthorized
+            })?;
+
+        tracing::debug!("no preferred_username in userinfo; resolving username for sub={sub}");
+        let lookup_url = format!("{}/api/v3/core/users/?uuid={sub}&page_size=1", base);
+        let lookup_resp = reqwest::Client::new()
+            .get(&lookup_url)
+            .bearer_auth(&self.config.bearer_access_token.clone().unwrap_or_default())
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("UUID lookup request failed: {e}");
+                AppError::Unauthorized
+            })?;
+
+        if !lookup_resp.status().is_success() {
+            tracing::warn!("UUID lookup returned HTTP {}", lookup_resp.status());
+            return Err(AppError::Unauthorized);
+        }
+
+        let body: serde_json::Value = lookup_resp.json().await.map_err(|_| AppError::Unauthorized)?;
+        body.get("results")
+            .and_then(|r| r.get(0))
+            .and_then(|u| u.get("username"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                tracing::warn!("UUID lookup found no user for sub={sub}");
+                AppError::Unauthorized
+            })
     }
 
     pub async fn get_all_real_users(&self) -> Result<Vec<AuthentikUser>, AppError> {

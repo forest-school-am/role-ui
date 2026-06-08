@@ -10,7 +10,7 @@ import {
 import { extractApiError } from "../../api/client";
 import { invalidateGroup } from "../../api/groupQueryHelpers";
 import { getMe } from "../../api/users";
-import type { GroupMember, GroupChild } from "../../types";
+import type { UserLink, GroupLink } from "../../types";
 import ColorPicker from "../dag/ColorPicker";
 import CrownIcon from "../CrownIcon";
 import GroupModalsRenderer from "./GroupModalsRenderer";
@@ -23,30 +23,27 @@ import { useGroupModals } from "../../hooks/useGroupModals";
 import { SECTION_LABEL_CLS, MINI_LINK_BTN_CLS } from "../../lib/ui-constants";
 
 interface GroupPreviewPanelProps {
-  groupPk: string;
   groupName: string;
+  isVirtual?: boolean;
   onClose: () => void;
 }
 
 // ---------------------------------------------------------------------------
-// MemberRow — compact, local component
+// MemberRow
 // ---------------------------------------------------------------------------
 function MemberRow({
   member,
   role,
   groupName,
-  groupPk,
   callerRole,
 }: {
-  member: GroupMember;
+  member: UserLink;
   role: "leader" | "manager" | "member";
   groupName: string;
-  groupPk: string;
   callerRole: string;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-
   const [mutationError, setMutationError] = useState<string | null>(null);
 
   const removeMutation = useMutation({
@@ -56,7 +53,7 @@ function MemberRow({
         : removeMember(groupName, member.username),
     onSuccess: () => {
       setMutationError(null);
-      invalidateGroup(queryClient, groupPk);
+      invalidateGroup(queryClient, groupName);
     },
     onError: (err) => setMutationError(extractApiError(err)),
   });
@@ -100,17 +97,15 @@ function MemberRow({
 }
 
 // ---------------------------------------------------------------------------
-// SubgroupRowItem — hover-reveal detach button for subgroup rows
+// SubgroupRowItem
 // ---------------------------------------------------------------------------
 function SubgroupRowItem({
   child,
   parentGroupName,
-  parentGroupPk,
   canDetach,
 }: {
-  child: GroupChild;
+  child: GroupLink;
   parentGroupName: string;
-  parentGroupPk: string;
   canDetach: boolean;
 }) {
   const navigate = useNavigate();
@@ -121,7 +116,7 @@ function SubgroupRowItem({
     mutationFn: () => detachChildGroup(parentGroupName, child.name),
     onSuccess: () => {
       setMutationError(null);
-      invalidateGroup(queryClient, parentGroupPk);
+      invalidateGroup(queryClient, parentGroupName);
     },
     onError: (err) => setMutationError(extractApiError(err)),
   });
@@ -164,32 +159,31 @@ function SubgroupRowItem({
 // GroupPreviewPanel
 // ---------------------------------------------------------------------------
 const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
-  groupPk,
   groupName,
+  isVirtual,
   onClose,
 }) => {
-  const isVirtual = groupPk.startsWith("virtual:");
-
   const {
     data: detail,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ["group", groupPk],
+    queryKey: ["group", groupName],
     queryFn: () => getGroup(groupName),
     enabled: !isVirtual,
   });
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: getMe });
-
   const queryClient = useQueryClient();
-
   const callerRole = useCallerRole(detail, me);
-
   const { activeModal, open, close } = useGroupModals();
 
   useEscapeKey(onClose);
+
+  const leader = detail?.members.leader[0] ?? null;
+  const managers = detail?.members.manager ?? [];
+  const members = detail?.members.member ?? [];
 
   return (
     <>
@@ -229,14 +223,10 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
-          {/* Loading / error states */}
           {isLoading && (
             <div className="px-4 py-3 space-y-2">
               {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-6 rounded bg-gray-100 animate-pulse"
-                />
+                <div key={i} className="h-6 rounded bg-gray-100 animate-pulse" />
               ))}
             </div>
           )}
@@ -244,24 +234,21 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
           {isError && (
             <div className="px-4 py-3">
               <p className="text-red-500 text-sm">
-                {error instanceof Error
-                  ? error.message
-                  : "Failed to load group."}
+                {error instanceof Error ? error.message : "Failed to load group."}
               </p>
             </div>
           )}
 
-          {/* Stats section */}
           {detail && (
             <div className="px-4 py-3">
               <div>
                 <p className={`${SECTION_LABEL_CLS} mb-1`}>Leader</p>
-                {detail.leader ? (
+                {leader ? (
                   <Link
-                    to={`/users/${detail.leader.username}`}
+                    to={`/users/${leader.username}`}
                     className="text-sm text-indigo-600 hover:underline"
                   >
-                    {detail.leader.name}
+                    {leader.name}
                   </Link>
                 ) : (
                   <EmptyNote>No leader</EmptyNote>
@@ -270,21 +257,15 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
 
               <div className="grid grid-cols-3 gap-2 text-center mt-3">
                 <div className="rounded bg-gray-50 p-2">
-                  <p className="text-lg font-bold text-gray-900">
-                    {detail.managers.length}
-                  </p>
+                  <p className="text-lg font-bold text-gray-900">{managers.length}</p>
                   <p className="text-xs text-gray-500">Managers</p>
                 </div>
                 <div className="rounded bg-gray-50 p-2">
-                  <p className="text-lg font-bold text-gray-900">
-                    {detail.members.length}
-                  </p>
+                  <p className="text-lg font-bold text-gray-900">{members.length}</p>
                   <p className="text-xs text-gray-500">Members</p>
                 </div>
                 <div className="rounded bg-gray-50 p-2">
-                  <p className="text-lg font-bold text-gray-900">
-                    {detail.children.length}
-                  </p>
+                  <p className="text-lg font-bold text-gray-900">{detail.children.length}</p>
                   <p className="text-xs text-gray-500">Subgroups</p>
                 </div>
               </div>
@@ -296,53 +277,42 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
             <section className="px-4 py-2 border-t border-gray-100">
               <div className="flex items-center justify-between mb-1">
                 <span className={SECTION_LABEL_CLS}>Members</span>
-                {!isVirtual &&
-                  (callerRole === "leader" || callerRole === "manager") && (
-                    <button
-                      className={MINI_LINK_BTN_CLS}
-                      onClick={() => open("addMember")}
-                    >
-                      + Add
-                    </button>
-                  )}
+                {!isVirtual && (callerRole === "leader" || callerRole === "manager") && (
+                  <button className={MINI_LINK_BTN_CLS} onClick={() => open("addMember")}>
+                    + Add
+                  </button>
+                )}
               </div>
-              {/* Leader row */}
-              {detail.leader && (
+              {leader && (
                 <MemberRow
-                  member={detail.leader}
+                  member={leader}
                   role="leader"
                   groupName={groupName}
-                  groupPk={groupPk}
                   callerRole={callerRole}
                 />
               )}
-              {/* Managers */}
-              {detail.managers.slice(0, 5).map((m) => (
+              {managers.slice(0, 5).map((m) => (
                 <MemberRow
-                  key={m.pk}
+                  key={m.username}
                   member={m}
                   role="manager"
                   groupName={groupName}
-                  groupPk={groupPk}
                   callerRole={callerRole}
                 />
               ))}
-              {/* Members */}
-              {detail.members
-                .slice(0, Math.max(0, 5 - detail.managers.length))
+              {members
+                .slice(0, Math.max(0, 5 - managers.length))
                 .map((m) => (
                   <MemberRow
-                    key={m.pk}
+                    key={m.username}
                     member={m}
                     role="member"
                     groupName={groupName}
-                    groupPk={groupPk}
                     callerRole={callerRole}
                   />
                 ))}
-              {/* Overflow count */}
               <OverflowHint
-                count={detail.managers.length + detail.members.length - 5}
+                count={managers.length + members.length - 5}
                 groupName={groupName}
               />
             </section>
@@ -355,17 +325,11 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                 <span className={SECTION_LABEL_CLS}>Subgroups</span>
                 {!isVirtual && callerRole === "leader" && (
                   <div className="flex gap-1">
-                    <button
-                      className={MINI_LINK_BTN_CLS}
-                      onClick={() => open("createSubgroup")}
-                    >
+                    <button className={MINI_LINK_BTN_CLS} onClick={() => open("createSubgroup")}>
                       + New
                     </button>
                     <span className="text-xs text-gray-300">|</span>
-                    <button
-                      className={MINI_LINK_BTN_CLS}
-                      onClick={() => open("addChildGroup")}
-                    >
+                    <button className={MINI_LINK_BTN_CLS} onClick={() => open("addChildGroup")}>
                       + Attach
                     </button>
                   </div>
@@ -377,17 +341,13 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                 <>
                   {detail.children.slice(0, 5).map((child) => (
                     <SubgroupRowItem
-                      key={child.pk}
+                      key={child.name}
                       child={child}
                       parentGroupName={groupName}
-                      parentGroupPk={groupPk}
                       canDetach={callerRole === "leader"}
                     />
                   ))}
-                  <OverflowHint
-                    count={detail.children.length - 5}
-                    groupName={groupName}
-                  />
+                  <OverflowHint count={detail.children.length - 5} groupName={groupName} />
                 </>
               )}
             </section>
@@ -400,11 +360,8 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
               <ColorPicker
                 currentColor={detail.color}
                 groupName={groupName}
-                groupPk={groupPk}
                 onColorChange={() =>
-                  void queryClient.invalidateQueries({
-                    queryKey: ["group", groupPk],
-                  })
+                  void queryClient.invalidateQueries({ queryKey: ["group", groupName] })
                 }
               />
             </section>
@@ -413,19 +370,10 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
           {/* Leader actions section */}
           {!isVirtual && callerRole === "leader" && (
             <section className="px-4 py-2 border-t border-gray-100 flex flex-col gap-1">
-              <DashedButton
-                color="red"
-                size="xs"
-                onClick={() => open("resignLeader")}
-              >
+              <DashedButton color="red" size="xs" onClick={() => open("resignLeader")}>
                 Resign as leader
               </DashedButton>
-              <DashedButton
-                color="red"
-                variant="dark"
-                size="xs"
-                onClick={() => open("disband")}
-              >
+              <DashedButton color="red" variant="dark" size="xs" onClick={() => open("disband")}>
                 Disband group
               </DashedButton>
             </section>
@@ -433,9 +381,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
         </div>
       </div>
 
-      {/* Modals */}
       <GroupModalsRenderer
-        groupPk={groupPk}
         groupName={groupName}
         detail={detail}
         activeModal={activeModal}

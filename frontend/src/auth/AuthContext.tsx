@@ -76,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'openid',
+      scope: 'openid profile',
       code_challenge: challenge,
       code_challenge_method: 'S256',
       state,

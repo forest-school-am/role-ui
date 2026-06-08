@@ -6,6 +6,7 @@ use axum::{
 use const_format::formatcp;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
+use itertools::Itertools;
 use crate::{
     audit,
     authentik::AuthentikGroup,
@@ -16,6 +17,7 @@ use crate::{
     },
     AppState,
 };
+use crate::authentik_state::GroupIdType;
 use crate::routes::api_models::{Group, GroupLink, GroupRole};
 use crate::routes::helpers::WriteLock;
 
@@ -83,26 +85,25 @@ struct SetColorBody {
 // ---------------------------------------------------------------------------
 
 /// Returns true if making `child_pk` a child of `parent_pk` would create a cycle.
-fn would_create_cycle(parent_pk: &str, child_pk: &str, all_groups: &[AuthentikGroup]) -> bool {
-    let parents_map: HashMap<&str, &Vec<String>> = all_groups
+fn would_create_cycle(parent_name: &GroupIdType, child_name: &GroupIdType, all_groups: &[Group]) -> bool {
+    let parents_map: HashMap<&GroupIdType, Vec<&GroupIdType>> = all_groups
         .iter()
-        .map(|g| (g.pk.as_str(), &g.parents))
+        .map(|g| (&g.name, g.parents.iter().map(|gl| &gl.name).collect_vec()))
         .collect();
 
-    // The child itself counts as visited — if parent_pk == child_pk it's trivially a cycle.
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    queue.push_back(child_pk);
+    let mut visited: HashSet<&GroupIdType> = HashSet::new();
+    let mut queue: VecDeque<&GroupIdType> = VecDeque::new();
+    queue.push_back(child_name);
 
     while let Some(current) = queue.pop_front() {
-        if current == parent_pk {
+        if current == parent_name {
             return true;
         }
         if visited.insert(current) {
             if let Some(parents) = parents_map.get(current) {
-                for p in *parents {
-                    if !visited.contains(p.as_str()) {
-                        queue.push_back(p.as_str());
+                for p in parents.iter() {
+                    if !visited.contains(p) {
+                        queue.push_back(&p);
                     }
                 }
             }
@@ -339,16 +340,17 @@ async fn attach_child_group(
     _write_lock: WriteLock,
     Json(AddChildGroupBody { group_name: child_name }): Json<AddChildGroupBody>,
 ) -> Result<Json<()>, AppError> {
-    let parent_pk = state.authentik_state.groupname_to_pk(&parent.name)?;
-    let child_pk = state.authentik_state.groupname_to_pk(&child_name)?;
 
-    if would_create_cycle(&parent_pk, &child_pk, &state.authentik_state.all_compat_groups()) {
+    if would_create_cycle(&parent.name, &child_name, &state.authentik_state.list_groups()) {
         return Err(AppError::BadRequest(
             "attaching this group would create a cycle".to_string(),
         ));
     }
 
     let child_compat = state.authentik_state.get_compat_group_by_name(&child_name)?;
+    let parent_pk = state.authentik_state.groupname_to_pk(&parent.name)?;
+    let child_pk = state.authentik_state.groupname_to_pk(&child_name)?;
+    
     let mut parents = child_compat.parents;
     if !parents.contains(&parent_pk) {
         parents.push(parent_pk);

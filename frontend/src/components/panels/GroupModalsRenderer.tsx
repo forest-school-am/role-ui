@@ -10,7 +10,6 @@ import {
 } from './GroupDetailPanel';
 
 interface GroupModalsRendererProps {
-  groupPk: string;
   groupName: string;
   detail: GroupDetail | undefined | null;
   activeModal: GroupModalName | null;
@@ -18,12 +17,7 @@ interface GroupModalsRendererProps {
   onDisbandSuccess: () => void;
 }
 
-/**
- * Renders the five conditional modal components for a group.
- * Used by both GroupPage and GroupPreviewPanel to avoid duplication.
- */
 const GroupModalsRenderer: React.FC<GroupModalsRendererProps> = ({
-  groupPk,
   groupName,
   detail,
   activeModal,
@@ -33,30 +27,26 @@ const GroupModalsRenderer: React.FC<GroupModalsRendererProps> = ({
   <>
     {activeModal === 'addMember' && (
       <AddMemberModal
-        groupPk={groupPk}
         groupName={groupName}
         onClose={close}
       />
     )}
     {activeModal === 'createSubgroup' && (
       <CreateSubgroupModal
-        groupPk={groupPk}
         groupName={groupName}
         onClose={close}
       />
     )}
     {activeModal === 'addChildGroup' && (
       <AddChildGroupModal
-        parentGroupPk={groupPk}
         parentGroupName={groupName}
         onClose={close}
       />
     )}
     {activeModal === 'resignLeader' && detail && (
       <ResignLeaderModal
-        groupPk={groupPk}
         groupName={groupName}
-        members={[...(detail.managers ?? []), ...(detail.members ?? [])]}
+        members={[...(detail.members.manager ?? []), ...(detail.members.member ?? [])]}
         onClose={close}
       />
     )}

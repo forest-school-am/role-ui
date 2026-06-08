@@ -48,15 +48,9 @@ const GroupPage: React.FC = () => {
     enabled: !!groupName,
   });
 
-  const { data: me } = useQuery({
-    queryKey: ["me"],
-    queryFn: getMe,
-  });
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: getMe });
 
-  const { data: allGroups } = useQuery({
-    queryKey: ["groups"],
-    queryFn: getGroups,
-  });
+  const { data: allGroups } = useQuery({ queryKey: ["groups"], queryFn: getGroups });
 
   const callerRole = useCallerRole(detail, me);
 
@@ -83,8 +77,8 @@ const GroupPage: React.FC = () => {
   });
 
   const addManagerMutation = useMutation({
-    mutationFn: ({ userPk }: { userPk: number }) =>
-      addManager(groupName, userPk),
+    mutationFn: ({ username }: { username: string }) =>
+      addManager(groupName, username),
     onSuccess: () => {
       setMutationError(null);
       invalidateGroup(queryClient, groupName);
@@ -93,15 +87,11 @@ const GroupPage: React.FC = () => {
     onError: (err) => setMutationError(extractApiError(err)),
   });
 
-  if (detailLoading) {
-    return <PageLoadingSkeleton />;
-  }
+  if (detailLoading) return <PageLoadingSkeleton />;
 
   if (detailError) {
     const message =
-      detailErrorObj instanceof Error
-        ? detailErrorObj.message
-        : "Failed to load group.";
+      detailErrorObj instanceof Error ? detailErrorObj.message : "Failed to load group.";
     const isNotFound = message.toLowerCase().includes("not found");
     return (
       <PageErrorCard
@@ -116,10 +106,13 @@ const GroupPage: React.FC = () => {
   const resolvedGroups = allGroups ?? [];
   const canManage = callerRole === "leader" || callerRole === "manager";
 
+  const leader = detail.members.leader[0] ?? null;
+  const managers = detail.members.manager;
+  const members = detail.members.member;
+
   return (
     <>
       <GroupModalsRenderer
-        groupPk={detail.pk}
         groupName={detail.name}
         detail={detail}
         activeModal={activeModal}
@@ -162,45 +155,66 @@ const GroupPage: React.FC = () => {
             </button>
 
             {/* Parent groups */}
-            {detail.parent_pks.length > 0 && (
+            {detail.parents.length > 0 && (
               <div>
                 <p className={`${SECTION_LABEL_CLS} mb-1`}>Parent Groups</p>
                 <div className="space-y-1">
-                  {detail.parent_pks.map((pk) => {
-                    const parent = resolvedGroups.find((g) => g.pk === pk);
-                    if (!parent) return null;
-                    return (
-                      <Link
-                        key={pk}
-                        to={"/groups/" + encodeURIComponent(parent.name)}
-                        className="block text-sm text-indigo-600 hover:underline"
-                      >
-                        {parent.name}
-                      </Link>
-                    );
-                  })}
+                  {detail.parents.map((parent) => (
+                    <Link
+                      key={parent.name}
+                      to={"/groups/" + encodeURIComponent(parent.name)}
+                      className="block text-sm text-indigo-600 hover:underline"
+                    >
+                      {parent.name}
+                    </Link>
+                  ))}
                 </div>
               </div>
             )}
+
+            {/* Peer groups (siblings via shared parent) */}
+            {detail.parents.length > 0 && (() => {
+              const siblings = resolvedGroups.filter(
+                (g) =>
+                  g.name !== detail.name &&
+                  g.parents.some((p) =>
+                    detail.parents.some((dp) => dp.name === p.name),
+                  ),
+              );
+              if (siblings.length === 0) return null;
+              return (
+                <div>
+                  <p className={`${SECTION_LABEL_CLS} mb-1`}>Peer Groups</p>
+                  <div className="space-y-1">
+                    {siblings.slice(0, 5).map((g) => (
+                      <Link
+                        key={g.name}
+                        to={"/groups/" + encodeURIComponent(g.name)}
+                        className="block text-sm text-indigo-600 hover:underline"
+                      >
+                        {g.name}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Stats */}
             <div>
               <p className={`${SECTION_LABEL_CLS} mb-2`}>Stats</p>
               <div className="space-y-1 text-sm text-gray-700">
                 <p>
-                  <span className="font-medium">{detail.managers.length}</span>{" "}
-                  manager
-                  {detail.managers.length !== 1 ? "s" : ""}
+                  <span className="font-medium">{managers.length}</span>{" "}
+                  manager{managers.length !== 1 ? "s" : ""}
                 </p>
                 <p>
-                  <span className="font-medium">{detail.members.length}</span>{" "}
-                  member
-                  {detail.members.length !== 1 ? "s" : ""}
+                  <span className="font-medium">{members.length}</span>{" "}
+                  member{members.length !== 1 ? "s" : ""}
                 </p>
                 <p>
                   <span className="font-medium">{detail.children.length}</span>{" "}
-                  subgroup
-                  {detail.children.length !== 1 ? "s" : ""}
+                  subgroup{detail.children.length !== 1 ? "s" : ""}
                 </p>
               </div>
             </div>
@@ -208,17 +222,12 @@ const GroupPage: React.FC = () => {
             {/* Group colour */}
             {callerRole === "leader" && detail && (
               <div>
-                <p className="text-sm font-medium text-gray-500 mb-2">
-                  Group colour
-                </p>
+                <p className="text-sm font-medium text-gray-500 mb-2">Group colour</p>
                 <ColorPicker
                   currentColor={detail.color}
                   groupName={detail.name}
-                  groupPk={detail.pk}
                   onColorChange={() =>
-                    void queryClient.invalidateQueries({
-                      queryKey: ["group", detail.name],
-                    })
+                    void queryClient.invalidateQueries({ queryKey: ["group", detail.name] })
                   }
                 />
               </div>
@@ -230,11 +239,7 @@ const GroupPage: React.FC = () => {
                 <DashedButton color="red" onClick={() => open("resignLeader")}>
                   Resign as leader
                 </DashedButton>
-                <DashedButton
-                  color="red"
-                  variant="dark"
-                  onClick={() => open("disband")}
-                >
+                <DashedButton color="red" variant="dark" onClick={() => open("disband")}>
                   Disband group
                 </DashedButton>
               </div>
@@ -246,14 +251,14 @@ const GroupPage: React.FC = () => {
             {/* Leader */}
             <section>
               <p className={`${SECTION_LABEL_CLS} mb-2`}>Leader</p>
-              {detail.leader ? (
+              {leader ? (
                 <div className="flex items-center gap-2 py-1.5 px-2">
                   <CrownIcon variant="gold" size="sm" />
                   <Link
-                    to={`/users/${detail.leader.username}`}
+                    to={`/users/${leader.username}`}
                     className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
                   >
-                    {detail.leader.name}
+                    {leader.name}
                   </Link>
                 </div>
               ) : (
@@ -262,12 +267,12 @@ const GroupPage: React.FC = () => {
             </section>
 
             {/* Managers */}
-            {detail.managers.length > 0 && (
+            {managers.length > 0 && (
               <section>
                 <p className={`${SECTION_LABEL_CLS} mb-2`}>Managers</p>
                 <div className="space-y-1">
-                  {detail.managers.map((m) => (
-                    <div key={m.uuid} className={MEMBER_ROW_CLS}>
+                  {managers.map((m) => (
+                    <div key={m.username} className={MEMBER_ROW_CLS}>
                       <CrownIcon variant="silver" size="sm" />
                       <Link
                         to={`/users/${m.username}`}
@@ -279,9 +284,7 @@ const GroupPage: React.FC = () => {
                         <button
                           className="text-xs text-orange-500 hover:text-orange-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={() =>
-                            removeManagerMutation.mutate({
-                              username: m.username,
-                            })
+                            removeManagerMutation.mutate({ username: m.username })
                           }
                           disabled={removeManagerMutation.isPending}
                         >
@@ -307,10 +310,10 @@ const GroupPage: React.FC = () => {
                   </button>
                 )}
               </div>
-              {detail.members.length > 0 ? (
+              {members.length > 0 ? (
                 <div className="space-y-1">
-                  {detail.members.map((m) => (
-                    <div key={m.uuid} className={MEMBER_ROW_CLS}>
+                  {members.map((m) => (
+                    <div key={m.username} className={MEMBER_ROW_CLS}>
                       <Link
                         to={`/users/${m.username}`}
                         className="text-sm text-gray-800 hover:underline flex-1 min-w-0 truncate"
@@ -321,7 +324,7 @@ const GroupPage: React.FC = () => {
                         <button
                           className="text-xs text-indigo-500 hover:text-indigo-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={() =>
-                            addManagerMutation.mutate({ userPk: m.pk })
+                            addManagerMutation.mutate({ username: m.username })
                           }
                           disabled={addManagerMutation.isPending}
                         >
@@ -332,9 +335,7 @@ const GroupPage: React.FC = () => {
                         <button
                           className="text-xs text-red-500 hover:text-red-700 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={() =>
-                            removeMemberMutation.mutate({
-                              username: m.username,
-                            })
+                            removeMemberMutation.mutate({ username: m.username })
                           }
                           disabled={removeMemberMutation.isPending}
                         >
@@ -356,7 +357,7 @@ const GroupPage: React.FC = () => {
                 <div className="space-y-1">
                   {detail.children.map((child) => (
                     <div
-                      key={child.pk}
+                      key={child.name}
                       className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded"
                     >
                       <Link
@@ -374,16 +375,10 @@ const GroupPage: React.FC = () => {
 
               {callerRole === "leader" && (
                 <div className="mt-3 space-y-2">
-                  <DashedButton
-                    color="indigo"
-                    onClick={() => open("createSubgroup")}
-                  >
+                  <DashedButton color="indigo" onClick={() => open("createSubgroup")}>
                     + Create subgroup
                   </DashedButton>
-                  <DashedButton
-                    color="gray"
-                    onClick={() => open("addChildGroup")}
-                  >
+                  <DashedButton color="gray" onClick={() => open("addChildGroup")}>
                     + Connect existing group
                   </DashedButton>
                 </div>

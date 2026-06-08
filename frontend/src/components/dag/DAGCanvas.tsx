@@ -15,35 +15,27 @@ import GroupNode, { type GroupNodeType } from "./GroupNode";
 
 interface DAGCanvasProps {
   groups: GroupDetail[];
-  onGroupSelect: (pk: string, name: string) => void;
+  onGroupSelect: (name: string, isVirtual?: boolean) => void;
   onMemberClick: (username: string) => void;
   focusNodeId?: string | null;
   onFocusConsumed?: () => void;
 }
 
 interface FocusControllerProps {
-  focusNodeId: string | null;    // now a group name
-  groups: GroupDetail[];
+  focusNodeId: string | null;
   onFocusConsumed?: () => void;
 }
 
-function FocusController({
-  focusNodeId,
-  groups,
-  onFocusConsumed,
-}: FocusControllerProps) {
+function FocusController({ focusNodeId, onFocusConsumed }: FocusControllerProps) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     if (!focusNodeId) return;
-    // Resolve name → pk
-    const group = groups.find(g => g.name === focusNodeId);
-    const nodeId = group?.pk ?? focusNodeId; // fallback to raw value
     const t = setTimeout(() => {
-      fitView({ nodes: [{ id: nodeId }], duration: 600, padding: 0.5 });
+      fitView({ nodes: [{ id: focusNodeId }], duration: 600, padding: 0.5 });
       onFocusConsumed?.();
     }, 100);
     return () => clearTimeout(t);
-  }, [focusNodeId, groups, fitView, onFocusConsumed]);
+  }, [focusNodeId, fitView, onFocusConsumed]);
   return null;
 }
 
@@ -52,10 +44,9 @@ const nodeTypes: NodeTypes = {
 };
 
 const COLUMN_WIDTH = 320;
-
 const NODE_HEADER_HEIGHT = 42;
 const NODE_MEMBER_ROW_HEIGHT = 24;
-const NODE_MEMBER_MAX_HEIGHT = 192; // max-h-48 = 48*4px
+const NODE_MEMBER_MAX_HEIGHT = 192;
 const NODE_FOOTER_PAD = 8;
 const NODE_GAP = 20;
 
@@ -65,86 +56,77 @@ const VIRTUAL_Y_OFFSET = 120;
 
 function computeLayout(
   groups: GroupDetail[],
-  onGroupSelect: (pk: string, name: string) => void,
+  onGroupSelect: (name: string, isVirtual?: boolean) => void,
   onMemberClick: (username: string) => void,
 ): { nodes: GroupNodeType[]; edges: Edge[] } {
-  // Deduplicate by pk — each group must appear exactly once
-  const groupByPk = new Map<string, GroupDetail>();
+  // Deduplicate by name
+  const groupByName = new Map<string, GroupDetail>();
   for (const g of groups) {
-    groupByPk.set(g.pk, g);
+    groupByName.set(g.name, g);
   }
-  const uniqueGroups = Array.from(groupByPk.values());
+  const uniqueGroups = Array.from(groupByName.values());
 
-  // Separate real and virtual groups
   const realGroups = uniqueGroups.filter((g) => !g.is_virtual);
   const virtualGroups = uniqueGroups.filter((g) => g.is_virtual);
 
-  const allRealPks = new Set(realGroups.map((g) => g.pk));
+  const allRealNames = new Set(realGroups.map((g) => g.name));
 
-  // Build children map: parent pk -> child pks (real groups only)
+  // Build children map: parent name -> child names
   const childrenOf = new Map<string, string[]>();
   for (const g of realGroups) {
-    for (const parentPk of g.parent_pks) {
-      if (allRealPks.has(parentPk)) {
-        if (!childrenOf.has(parentPk)) childrenOf.set(parentPk, []);
-        childrenOf.get(parentPk)!.push(g.pk);
+    for (const parent of g.parents) {
+      if (allRealNames.has(parent.name)) {
+        if (!childrenOf.has(parent.name)) childrenOf.set(parent.name, []);
+        childrenOf.get(parent.name)!.push(g.name);
       }
     }
   }
 
-  // Column assignment: each node gets max(parent_cols) + 1.
-  // Use a topological relaxation pass (iterate until stable) so that
-  // diamond-shaped DAGs (node with multiple parents) always land in the
-  // correct column even if one parent is processed after the child.
+  // Column assignment via topological relaxation
   const columnOf = new Map<string, number>();
 
-  // Roots (no known parents in the dataset) start at column 0
   for (const g of realGroups) {
-    const relevantParents = g.parent_pks.filter((p) => allRealPks.has(p));
+    const relevantParents = g.parents.filter((p) => allRealNames.has(p.name));
     if (relevantParents.length === 0) {
-      columnOf.set(g.pk, 0);
+      columnOf.set(g.name, 0);
     }
   }
 
-  // Iterative relaxation: repeat until no column value changes
   let changed = true;
   while (changed) {
     changed = false;
     for (const g of realGroups) {
-      const relevantParents = g.parent_pks.filter((p) => allRealPks.has(p));
+      const relevantParents = g.parents.filter((p) => allRealNames.has(p.name));
       if (relevantParents.length === 0) continue;
       const maxParentCol = Math.max(
-        ...relevantParents.map((p) => columnOf.get(p) ?? 0),
+        ...relevantParents.map((p) => columnOf.get(p.name) ?? 0),
       );
       const desired = maxParentCol + 1;
-      const current = columnOf.get(g.pk) ?? -1;
+      const current = columnOf.get(g.name) ?? -1;
       if (desired > current) {
-        columnOf.set(g.pk, desired);
+        columnOf.set(g.name, desired);
         changed = true;
       }
     }
   }
 
-  // Any disconnected real groups not yet assigned go to column 0
   for (const g of realGroups) {
-    if (!columnOf.has(g.pk)) columnOf.set(g.pk, 0);
+    if (!columnOf.has(g.name)) columnOf.set(g.name, 0);
   }
 
-  // Group by column
   const byColumn = new Map<number, string[]>();
-  for (const [pk, col] of columnOf.entries()) {
+  for (const [name, col] of columnOf.entries()) {
     if (!byColumn.has(col)) byColumn.set(col, []);
-    byColumn.get(col)!.push(pk);
+    byColumn.get(col)!.push(name);
   }
 
-  // ── Phase 2: pixel-position row assignment ──────────────────────────────
-
-  // Helper: height of a node given its pk
-  function nodeHeight(pk: string): number {
-    const detail = groupByPk.get(pk);
+  function nodeHeight(name: string): number {
+    const detail = groupByName.get(name);
     if (!detail) return NODE_HEADER_HEIGHT + NODE_FOOTER_PAD;
     const memberCount =
-      (detail.leader ? 1 : 0) + detail.managers.length + detail.members.length;
+      detail.members.leader.length +
+      detail.members.manager.length +
+      detail.members.member.length;
     const memberSection = Math.min(
       memberCount * NODE_MEMBER_ROW_HEIGHT,
       NODE_MEMBER_MAX_HEIGHT,
@@ -152,21 +134,19 @@ function computeLayout(
     return NODE_HEADER_HEIGHT + memberSection + NODE_FOOTER_PAD;
   }
 
-  // Helper: pack a list of pks top-to-bottom with two-pass refinement, return pk → yCenter
   function packColumn(
-    orderedPks: string[],
+    orderedNames: string[],
     desiredYCenters?: Map<string, number>,
   ): Map<string, number> {
-    const n = orderedPks.length;
+    const n = orderedNames.length;
     const tops: number[] = new Array(n);
 
-    // Forward pass: push nodes down so no overlap occurs
     let currentBottom = 0;
     for (let i = 0; i < n; i++) {
-      const pk = orderedPks[i];
-      const next = orderedPks[i + 1];
-      const h = nodeHeight(pk);
-      const desired = desiredYCenters?.get(pk);
+      const name = orderedNames[i];
+      const next = orderedNames[i + 1];
+      const h = nodeHeight(name);
+      const desired = desiredYCenters?.get(name);
       const idealTop = desired !== undefined ? desired - h / 2 : currentBottom;
       if (idealTop > currentBottom) {
         if (next !== undefined) {
@@ -187,16 +167,14 @@ function computeLayout(
       }
       currentBottom = tops[i] + h + NODE_GAP;
     }
-    // Build output map from final tops array
     const yCenter = new Map<string, number>();
     for (let i = 0; i < n; i++) {
-      const pk = orderedPks[i];
-      yCenter.set(pk, tops[i] + nodeHeight(pk) / 2);
+      const name = orderedNames[i];
+      yCenter.set(name, tops[i] + nodeHeight(name) / 2);
     }
     return yCenter;
   }
 
-  // Helper: median of a number array (float, used for sorting only)
   function median(values: number[]): number {
     if (values.length === 0) return 0;
     const sorted = [...values].sort((a, b) => a - b);
@@ -206,106 +184,89 @@ function computeLayout(
       : (sorted[mid - 1] + sorted[mid]) / 2;
   }
 
-  function computeOptimalRows(): Map<
-    string,
-    { yCenter: number; yTop: number }
-  > {
-    // Step 1: Classify nodes into connected vs isolated
-    const connectedPks = new Set<string>();
-    for (const [parentPk, children] of childrenOf.entries()) {
-      connectedPks.add(parentPk);
-      for (const c of children) connectedPks.add(c);
+  function computeOptimalRows(): Map<string, { yCenter: number; yTop: number }> {
+    const connectedNames = new Set<string>();
+    for (const [parentName, children] of childrenOf.entries()) {
+      connectedNames.add(parentName);
+      for (const c of children) connectedNames.add(c);
     }
-    const isolatedPks = new Map<number, string[]>(); // col → pks
+    const isolatedNames = new Map<number, string[]>();
     for (const g of realGroups) {
-      if (!connectedPks.has(g.pk)) {
-        const col = columnOf.get(g.pk) ?? 0;
-        if (!isolatedPks.has(col)) isolatedPks.set(col, []);
-        isolatedPks.get(col)!.push(g.pk);
+      if (!connectedNames.has(g.name)) {
+        const col = columnOf.get(g.name) ?? 0;
+        if (!isolatedNames.has(col)) isolatedNames.set(col, []);
+        isolatedNames.get(col)!.push(g.name);
       }
     }
 
-    // Step 2: Build parentsOf (invert childrenOf)
     const parentsOf = new Map<string, string[]>();
-    for (const [parentPk, children] of childrenOf.entries()) {
-      for (const childPk of children) {
-        if (!parentsOf.has(childPk)) parentsOf.set(childPk, []);
-        parentsOf.get(childPk)!.push(parentPk);
+    for (const [parentName, children] of childrenOf.entries()) {
+      for (const childName of children) {
+        if (!parentsOf.has(childName)) parentsOf.set(childName, []);
+        parentsOf.get(childName)!.push(parentName);
       }
     }
 
-    // Step 3: Initialize column ordering (connected nodes only, sorted alpha)
     const columnOrder = new Map<number, string[]>();
-    for (const [col, pks] of byColumn.entries()) {
-      const connected = pks
-        .filter((pk) => connectedPks.has(pk))
-        .sort((a, b) => {
-          const na = groupByPk.get(a)?.name ?? a;
-          const nb = groupByPk.get(b)?.name ?? b;
-          return na.localeCompare(nb);
-        });
+    for (const [col, names] of byColumn.entries()) {
+      const connected = names
+        .filter((n) => connectedNames.has(n))
+        .sort((a, b) => a.localeCompare(b));
       if (connected.length > 0) columnOrder.set(col, connected);
     }
 
-    // Initial yCenters from pack
     const yCenters = new Map<string, number>();
-    for (const pks of columnOrder.values()) {
-      const packed = packColumn(pks);
-      for (const [pk, yc] of packed.entries()) {
-        yCenters.set(pk, yc);
+    for (const names of columnOrder.values()) {
+      const packed = packColumn(names);
+      for (const [name, yc] of packed.entries()) {
+        yCenters.set(name, yc);
       }
     }
 
-    // Step 4: Coordinate descent loop
     const sortedCols = Array.from(columnOrder.keys()).sort((a, b) => a - b);
 
     function reorderColumn(col: number): void {
-      const pks = columnOrder.get(col);
-      if (!pks) return;
+      const names = columnOrder.get(col);
+      if (!names) return;
 
-      // Compute desiredY for each pk in this column
       const desiredY = new Map<string, number>();
-      for (const pk of pks) {
+      for (const name of names) {
         const neighbours: number[] = [];
-        // Parents in col - 1
-        for (const p of parentsOf.get(pk) ?? []) {
+        for (const p of parentsOf.get(name) ?? []) {
           if (columnOf.get(p) === col - 1 && yCenters.has(p)) {
             neighbours.push(yCenters.get(p)!);
           }
         }
-        // Children in col + 1
-        for (const c of childrenOf.get(pk) ?? []) {
+        for (const c of childrenOf.get(name) ?? []) {
           if (columnOf.get(c) === col + 1 && yCenters.has(c)) {
             neighbours.push(yCenters.get(c)!);
           }
         }
         desiredY.set(
-          pk,
-          neighbours.length > 0 ? median(neighbours) : (yCenters.get(pk) ?? 0),
+          name,
+          neighbours.length > 0 ? median(neighbours) : (yCenters.get(name) ?? 0),
         );
       }
 
-      // Sort by desiredY, tie-break by pk string
-      const sorted = [...pks].sort((a, b) => {
+      const sorted = [...names].sort((a, b) => {
         const dy = (desiredY.get(a) ?? 0) - (desiredY.get(b) ?? 0);
         if (dy !== 0) return dy;
         return a.localeCompare(b);
       });
       columnOrder.set(col, sorted);
 
-      // Re-pack this column
       const packed = packColumn(sorted, desiredY);
-      for (const [pk, yc] of packed.entries()) {
-        yCenters.set(pk, yc);
+      for (const [name, yc] of packed.entries()) {
+        yCenters.set(name, yc);
       }
     }
 
     function computeCost(): number {
       let cost = 0;
-      for (const [parentPk, children] of childrenOf.entries()) {
-        for (const childPk of children) {
-          if (yCenters.has(parentPk) && yCenters.has(childPk)) {
-            cost += Math.abs(yCenters.get(parentPk)! - yCenters.get(childPk)!);
+      for (const [parentName, children] of childrenOf.entries()) {
+        for (const childName of children) {
+          if (yCenters.has(parentName) && yCenters.has(childName)) {
+            cost += Math.abs(yCenters.get(parentName)! - yCenters.get(childName)!);
           }
         }
       }
@@ -314,62 +275,47 @@ function computeLayout(
 
     let prevCost = Infinity;
     for (let iter = 0; iter < 20; iter++) {
-      // Forward sweep
       for (const col of sortedCols) reorderColumn(col);
-      // Backward sweep
       for (const col of [...sortedCols].reverse()) reorderColumn(col);
-
       const currentCost = computeCost();
       if (currentCost === prevCost) break;
       prevCost = currentCost;
     }
 
-    // Step 5: Place isolated nodes below connected nodes, per column
-    for (const [col, ipks] of isolatedPks.entries()) {
-      // Find bottom of last connected node in this column
+    for (const [col, inames] of isolatedNames.entries()) {
       const connectedInCol = columnOrder.get(col) ?? [];
       let bottomY = 0;
-      for (const pk of connectedInCol) {
-        const yc = yCenters.get(pk) ?? 0;
-        const bottom = yc + nodeHeight(pk) / 2;
+      for (const name of connectedInCol) {
+        const yc = yCenters.get(name) ?? 0;
+        const bottom = yc + nodeHeight(name) / 2;
         if (bottom > bottomY) bottomY = bottom;
       }
       if (connectedInCol.length > 0) bottomY += NODE_GAP;
 
-      // Sort isolated nodes alphabetically by name
-      const sortedIsolated = [...ipks].sort((a, b) => {
-        const na = groupByPk.get(a)?.name ?? a;
-        const nb = groupByPk.get(b)?.name ?? b;
-        return na.localeCompare(nb);
-      });
-
-      // Pack them starting from bottomY
+      const sortedIsolated = [...inames].sort((a, b) => a.localeCompare(b));
       let y = bottomY;
-      for (const pk of sortedIsolated) {
-        const h = nodeHeight(pk);
-        yCenters.set(pk, y + h / 2);
+      for (const name of sortedIsolated) {
+        const h = nodeHeight(name);
+        yCenters.set(name, y + h / 2);
         y += h + NODE_GAP;
       }
     }
 
-    // Step 6: Build output map
     const result = new Map<string, { yCenter: number; yTop: number }>();
     for (const g of realGroups) {
-      const yc = yCenters.get(g.pk) ?? 0;
-      result.set(g.pk, { yCenter: yc, yTop: yc - nodeHeight(g.pk) / 2 });
+      const yc = yCenters.get(g.name) ?? 0;
+      result.set(g.name, { yCenter: yc, yTop: yc - nodeHeight(g.name) / 2 });
     }
     return result;
   }
 
   const positionMap = computeOptimalRows();
 
-  // Build real nodes
   const nodes: GroupNodeType[] = realGroups.map((g) => {
-    const col = columnOf.get(g.pk) ?? 0;
-    const { yTop } = positionMap.get(g.pk) ?? { yTop: 0 };
+    const col = columnOf.get(g.name) ?? 0;
+    const { yTop } = positionMap.get(g.name) ?? { yTop: 0 };
 
     const data: GroupNodeData = {
-      groupPk: g.pk,
       groupName: g.name,
       detail: { ...g, color: g.color ?? "#e2e8f0" },
       onSelect: onGroupSelect,
@@ -378,27 +324,24 @@ function computeLayout(
     };
 
     return {
-      id: g.pk,
+      id: g.name,
       type: "groupNode" as const,
       position: { x: col * COLUMN_WIDTH, y: yTop },
       data,
     };
   });
 
-  // Find the bottom edge of all real nodes
   const maxY = realGroups.reduce((max, g) => {
-    const { yTop } = positionMap.get(g.pk) ?? { yTop: 0 };
-    return Math.max(max, yTop + nodeHeight(g.pk));
+    const { yTop } = positionMap.get(g.name) ?? { yTop: 0 };
+    return Math.max(max, yTop + nodeHeight(g.name));
   }, 0);
 
-  // Position virtual nodes below the real DAG, side by side
   const virtualY = maxY + VIRTUAL_Y_OFFSET;
 
   for (const vg of virtualGroups) {
     const virtualX = virtualGroups.indexOf(vg) * (VIRTUAL_NODE_WIDTH + VIRTUAL_GAP);
 
     const data: GroupNodeData = {
-      groupPk: vg.pk,
       groupName: vg.name,
       detail: { ...vg, color: vg.color ?? "#e5e7eb" },
       onSelect: onGroupSelect,
@@ -407,7 +350,7 @@ function computeLayout(
     };
 
     nodes.push({
-      id: vg.pk,
+      id: vg.name,
       type: "groupNode" as const,
       position: { x: virtualX, y: virtualY },
       data,
@@ -416,14 +359,14 @@ function computeLayout(
 
   const edges: Edge[] = [];
   for (const g of realGroups) {
-    for (const parentPk of g.parent_pks) {
-      if (allRealPks.has(parentPk)) {
-        const sourceGroup = groupByPk.get(parentPk);
-        const sourceColor = sourceGroup?.color ?? "#94a3b8"; // default slate-400
+    for (const parent of g.parents) {
+      if (allRealNames.has(parent.name)) {
+        const sourceGroup = groupByName.get(parent.name);
+        const sourceColor = sourceGroup?.color ?? "#94a3b8";
         edges.push({
-          id: `${parentPk}->${g.pk}`,
-          source: parentPk,
-          target: g.pk,
+          id: `${parent.name}->${g.name}`,
+          source: parent.name,
+          target: g.name,
           style: { stroke: sourceColor, strokeWidth: 2 },
           markerEnd: { type: MarkerType.ArrowClosed, color: sourceColor },
         });
@@ -458,7 +401,6 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
       >
         <FocusController
           focusNodeId={focusNodeId ?? null}
-          groups={groups}
           onFocusConsumed={onFocusConsumed}
         />
         <Background />

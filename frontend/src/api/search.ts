@@ -2,17 +2,13 @@ import apiClient from './client';
 
 export interface UserSearchResult {
   __search_type: 'user';
-  pk: number;
-  uuid: string;
   username: string;
   name: string;
 }
 
 export interface GroupSearchResult {
   __search_type: 'group';
-  pk: string;
   name: string;
-  is_superuser: boolean;
 }
 
 export type SearchResult = UserSearchResult | GroupSearchResult;
@@ -28,4 +24,3 @@ export async function getSearchLinkGen(): Promise<string> {
   const { data } = await apiClient.get<string>('/api/search-link-gen');
   return data;
 }
-

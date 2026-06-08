@@ -20,14 +20,12 @@ const PALETTE = [
 interface ColorPickerProps {
   currentColor?: string;
   groupName: string;
-  groupPk: string;
   onColorChange: (color: string) => void;
 }
 
 const ColorPicker: React.FC<ColorPickerProps> = ({
   currentColor,
   groupName,
-  groupPk,
   onColorChange,
 }) => {
   const queryClient = useQueryClient();
@@ -36,14 +34,13 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
     mutationFn: (color: string) => setGroupColor(groupName, color),
     onSuccess: (_data, color) => {
       void queryClient.invalidateQueries({ queryKey: ['groups'] });
-      void queryClient.invalidateQueries({ queryKey: ['group', groupPk] });
+      void queryClient.invalidateQueries({ queryKey: ['group', groupName] });
       onColorChange(color);
     },
   });
 
   const handleClick = (e: React.MouseEvent, color: string) => {
     e.stopPropagation();
-    // Clicking the neutral swatch clears the color
     const valueToSend = color === '#f5f5f5' ? '' : color;
     mutation.mutate(valueToSend);
   };

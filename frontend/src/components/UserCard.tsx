@@ -1,33 +1,44 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { User } from '../types';
+import type { User, GroupRole } from '../types';
 import GroupTag from './GroupTag';
 
 interface UserCardProps {
   user: User;
 }
 
-const SOCIAL_LABELS: Record<string, string> = {
+const LOGIN_LABELS: Record<string, string> = {
   email: 'Email',
   telegram: 'Telegram',
   google: 'Google',
 };
 
-function socialLabel(type: string): string {
-  return SOCIAL_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
+function loginLabel(kind: string): string {
+  return LOGIN_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
-function socialHref(type: string, address: string): string | undefined {
-  if (type === 'email') return `mailto:${address}`;
-  if (type === 'telegram') return `https://t.me/${address.replace(/^@/, '')}`;
+function loginHref(kind: string, address: string): string | undefined {
+  if (kind === 'email') return `mailto:${address}`;
+  if (kind === 'telegram') return `https://t.me/${address.replace(/^@/, '')}`;
   return undefined;
+}
+
+interface FlatGroupMembership {
+  name: string;
+  role: GroupRole;
+}
+
+function flattenGroups(user: User): FlatGroupMembership[] {
+  const groups: FlatGroupMembership[] = [];
+  for (const g of user.groups.leader) groups.push({ name: g.name, role: 'leader' });
+  for (const g of user.groups.manager) groups.push({ name: g.name, role: 'manager' });
+  for (const g of user.groups.member) groups.push({ name: g.name, role: 'member' });
+  return groups.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const UserCard: React.FC<UserCardProps> = ({ user }) => {
   const navigate = useNavigate();
-  const sortedGroups = [...user.groups].sort((a, b) =>
-    a.group_name.localeCompare(b.group_name),
-  );
+  const sortedGroups = flattenGroups(user);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 max-w-xl w-full mx-auto">
@@ -52,12 +63,12 @@ const UserCard: React.FC<UserCardProps> = ({ user }) => {
           <dd className="font-mono text-gray-600">{user.username}</dd>
         </div>
 
-        {user.social.map((account) => {
-          const href = socialHref(account.type, account.address);
+        {user.logins.map((account) => {
+          const href = loginHref(account.kind, account.address);
           return (
-            <div key={account.type} className="flex gap-2">
+            <div key={account.kind} className="flex gap-2">
               <dt className="font-medium text-gray-500 w-24 shrink-0">
-                {socialLabel(account.type)}
+                {loginLabel(account.kind)}
               </dt>
               <dd>
                 {href ? (
@@ -73,23 +84,6 @@ const UserCard: React.FC<UserCardProps> = ({ user }) => {
         })}
       </dl>
 
-      {/* SSH keys */}
-      {user.ssh.length > 0 && (
-        <div className="mb-6">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-            SSH Keys
-          </p>
-          <ul className="space-y-2">
-            {user.ssh.map((k) => (
-              <li key={k.label} className="rounded bg-gray-50 border border-gray-200 px-3 py-2">
-                <p className="text-xs font-medium text-gray-600 mb-1">{k.label}</p>
-                <p className="font-mono text-xs text-gray-500 break-all">{k.key}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* Group memberships */}
       {sortedGroups.length > 0 ? (
         <div>
@@ -99,10 +93,10 @@ const UserCard: React.FC<UserCardProps> = ({ user }) => {
           <div className="flex flex-wrap gap-2">
             {sortedGroups.map((gm) => (
               <GroupTag
-                key={gm.group_pk}
-                groupName={gm.group_name}
+                key={gm.name}
+                groupName={gm.name}
                 role={gm.role}
-                onClick={() => navigate(`/groups/${encodeURIComponent(gm.group_name)}`)}
+                onClick={() => navigate(`/groups/${encodeURIComponent(gm.name)}`)}
               />
             ))}
           </div>

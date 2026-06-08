@@ -1,64 +1,53 @@
 // Roles a user can have within a single group
 export type GroupRole = "leader" | "manager" | "member";
 
-// A compact group membership entry on a user's profile
-export interface GroupMembership {
-  group_pk: string;      // UUID
-  group_name: string;
-  role: GroupRole;
-}
-
-// A social contact entry (email, telegram, google, …)
-export interface SocialAccount {
-  type: string;
+// A login/contact account stored on a user (email, telegram, google, …)
+export interface LoginAccount {
+  kind: string;    // "email" | "telegram" | "google" | ...
   address: string;
 }
 
-// A named SSH public key
-export interface SshKey {
-  label: string;
-  key: string;
+// Minimal user info used inside group member lists and search results
+export interface UserLink {
+  username: string;
+  name: string;
 }
 
-// Full user profile (response from GET /api/users/me and GET /api/users/:uuid)
+// Minimal group info used inside user profiles, parent/child lists
+export interface GroupLink {
+  name: string;
+}
+
+// Group members organised by role (backend: RoleSplit<UserLink>)
+export interface GroupMembersByRole {
+  leader: UserLink[];
+  manager: UserLink[];
+  member: UserLink[];
+}
+
+// User's group memberships organised by role (backend: RoleSplit<GroupLink>)
+export interface UserGroupsByRole {
+  leader: GroupLink[];
+  manager: GroupLink[];
+  member: GroupLink[];
+}
+
+// Full user profile (response from GET /api/users/me and GET /api/users/:username)
 export interface User {
-  pk: number;
-  uuid: string;          // UUID
   username: string;
   name: string;
   is_active: boolean;
-  social: SocialAccount[];
-  ssh: SshKey[];
-  groups: GroupMembership[];
+  logins: LoginAccount[];
+  groups: UserGroupsByRole;
+  attributes: [string, string][];
 }
 
-// A single member inside a group detail response
-export interface GroupMember {
-  pk: number;
-  uuid: string;          // UUID
-  username: string;
-  name: string;
-  email: string;
-  is_active: boolean;
-}
-
-// A child group entry inside a group detail response
-export interface GroupChild {
-  pk: string;
-  name: string;
-  is_virtual?: boolean;
-}
-
-// Full group detail (response from GET /api/groups/:groupPk)
+// Full group detail (response from GET /api/groups and GET /api/groups/:name)
 export interface GroupDetail {
-  pk: string;            // UUID
   name: string;
-  is_superuser: boolean;
-  parent_pks: string[];  // UUID[]
-  leader: GroupMember | null;
-  managers: GroupMember[];
-  members: GroupMember[];
-  children: GroupChild[];
+  members: GroupMembersByRole;
+  children: GroupLink[];
+  parents: GroupLink[];
   color?: string;
   is_virtual?: boolean;
 }
@@ -70,10 +59,9 @@ export interface MutationSuccess {
 
 // React Flow node data payload for GroupNode
 export interface GroupNodeData extends Record<string, unknown> {
-  groupPk: string;
   groupName: string;
   detail: GroupDetail | null;
-  onSelect: (groupPk: string, groupName: string) => void;
+  onSelect: (groupName: string, isVirtual?: boolean) => void;
   onMemberClick: (username: string) => void;
   isVirtual?: boolean;
 }
@@ -81,7 +69,7 @@ export interface GroupNodeData extends Record<string, unknown> {
 // Discriminated union for the active panel state in StructurePage
 export type PanelState =
   | { kind: 'none' }
-  | { kind: 'groupPreview'; groupPk: string; groupName: string }
+  | { kind: 'groupPreview'; groupName: string; isVirtual?: boolean }
   | { kind: 'userPreview'; username: string };
 
 // CrownIcon variant

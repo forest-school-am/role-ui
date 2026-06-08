@@ -117,12 +117,12 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
           {userResults.length > 0 && (
             <>
               <SearchCategoryHeader label="Users" />
-              {userResults.map((u) => (
+              {userResults.map((u, idx) => (
                 <li
-                  key={u.uuid}
+                  key={u.username}
                   onMouseDown={() => handleSelect(u)}
                   className={`px-3 py-2 text-sm text-gray-700 cursor-pointer ${
-                    userResults.indexOf(u) === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
+                    idx === selectedIndex ? 'bg-indigo-50' : 'hover:bg-indigo-50'
                   }`}
                 >
                   {u.name}{' '}
@@ -134,12 +134,12 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
           {groupResults.length > 0 && (
             <>
               <SearchCategoryHeader label="Groups" />
-              {groupResults.map((g) => (
+              {groupResults.map((g, idx) => (
                 <li
-                  key={g.pk}
+                  key={g.name}
                   onMouseDown={() => handleSelect(g)}
                   className={`px-3 py-2 text-sm text-gray-700 cursor-pointer ${
-                    userResults.length + groupResults.indexOf(g) === selectedIndex
+                    userResults.length + idx === selectedIndex
                       ? 'bg-indigo-50'
                       : 'hover:bg-indigo-50'
                   }`}

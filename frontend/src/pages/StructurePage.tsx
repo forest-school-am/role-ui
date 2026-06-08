@@ -10,7 +10,7 @@ import type { PanelState } from '../types';
 const StructurePage: React.FC = () => {
   const [panel, setPanel] = useState<PanelState>({ kind: 'none' });
   const [searchParams] = useSearchParams();
-  const focusGroupId = searchParams.get('focus');
+  const focusGroupName = searchParams.get('focus');
 
   const {
     data: groups,
@@ -25,16 +25,13 @@ const StructurePage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-gray-50">
-        <p className="text-gray-500 text-sm animate-pulse">
-          Loading group structure…
-        </p>
+        <p className="text-gray-500 text-sm animate-pulse">Loading group structure…</p>
       </div>
     );
   }
 
   if (isError) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to load groups.';
+    const message = error instanceof Error ? error.message : 'Failed to load groups.';
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="rounded-lg border border-red-300 bg-red-50 p-6 text-red-800 max-w-md w-full">
@@ -51,9 +48,11 @@ const StructurePage: React.FC = () => {
     <div className="relative w-full h-full bg-gray-50">
       <DAGCanvas
         groups={resolvedGroups}
-        onGroupSelect={(pk, name) => setPanel({ kind: 'groupPreview', groupPk: pk, groupName: name })}
+        onGroupSelect={(name, isVirtual) =>
+          setPanel({ kind: 'groupPreview', groupName: name, isVirtual })
+        }
         onMemberClick={(username) => setPanel({ kind: 'userPreview', username })}
-        focusNodeId={focusGroupId}
+        focusNodeId={focusGroupName}
       />
 
       {panel.kind === 'userPreview' && (
@@ -64,8 +63,8 @@ const StructurePage: React.FC = () => {
       )}
       {panel.kind === 'groupPreview' && (
         <GroupPreviewPanel
-          groupPk={panel.groupPk}
           groupName={panel.groupName}
+          isVirtual={panel.isVirtual}
           onClose={() => setPanel({ kind: 'none' })}
         />
       )}

@@ -79,6 +79,12 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Populate state before accepting connections so the first authenticated
+    // request doesn't hit an empty cache and get a spurious 401.
+    tracing::info!("loading initial authentik state…");
+    state_wrapper.update(&authentik_client).await?;
+    tracing::info!("initial authentik state loaded.");
+
     // Build shared state.
     let state = AppState {
         authentik_client,

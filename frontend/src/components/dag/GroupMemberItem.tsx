@@ -1,9 +1,9 @@
 import React from 'react';
-import type { GroupMember, CrownVariant } from '../../types';
+import type { UserLink, CrownVariant } from '../../types';
 import CrownIcon from '../CrownIcon';
 
 interface GroupMemberItemProps {
-  member: GroupMember;
+  member: UserLink;
   crownVariant?: CrownVariant;
   onMemberClick: (username: string) => void;
 }
