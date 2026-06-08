@@ -9,7 +9,6 @@ use moka::future::Cache;
 use sha2::{Digest, Sha256};
 
 use crate::{error::AppError, AppState};
-use crate::authentik::AuthentikUser;
 use crate::routes::api_models::User;
 // ---------------------------------------------------------------------------
 // Authenticated user — placed in request extensions by the extractor
@@ -66,12 +65,11 @@ async fn resolve_authenticated_user(
         return Ok(state.authentik_state.user_by_username(&user)?);
     }
 
-    let uuid = state.authentik_client.validate_user_token(token).await?;
-    let auth_user = state.authentik_client.get_user_by_uuid(&uuid).await?;
-    let user = state.authentik_state.user_by_username(&auth_user.username);
+    let username = state.authentik_client.validate_user_token(token).await?;
+    let user = state.authentik_state.user_by_username(&username);
 
     if let Ok(user) = user {
-        state.token_cache.insert(key, auth_user.username).await;
+        state.token_cache.insert(key, username).await;
         Ok(user)
     } else {
         let _ = state.tx.send(()).await;

@@ -5,10 +5,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::{auth::AuthenticatedUser, error::AppError, AppState};
+use crate::{error::AppError, AppState};
 
 const SEARCH_LINK_GEN_JS: &str = r#"function generateSearchLink(obj) {
   switch (obj.__search_type) {
@@ -56,43 +57,35 @@ async fn search(
         }
     };
 
-    // Parse requested types; default to both.
     let types_str = params.types.as_deref().unwrap_or("user,group");
     let want_users = types_str.split(',').any(|t| t.trim() == "user");
     let want_groups = types_str.split(',').any(|t| t.trim() == "group");
 
     let mut results: Vec<Value> = Vec::new();
 
-    let (user_results, group_results) = match (want_users, want_groups) {
-        (true, true) => {
-            let (users, groups) = tokio::try_join!(
-                state.authentik_client.search_users(&q, 20),
-                state.authentik_client.get_groups_all(),
-            )?;
-            (users, groups)
+    if want_users {
+        let term = Regex::new(&q).unwrap_or_else(|_| {
+            Regex::new(&regex::escape(&q)).expect("escaped regex must be valid")
+        });
+        for u in state.authentik_state.search_users_to_links(&term) {
+            results.push(json!({
+                "__search_type": "user",
+                "username": u.username,
+                "name": u.name,
+            }));
         }
-        (true, false) => (state.authentik_client.search_users(&q, 20).await?, vec![]),
-        (false, true) => (vec![], state.authentik_client.get_groups_all().await?),
-        (false, false) => (vec![], vec![]),
-    };
-
-    for u in user_results {
-        results.push(json!({
-            "__search_type": "user",
-            "username": u.username,
-            "name": u.name,
-        }));
     }
 
-    let q_lower = q.to_lowercase();
-    for g in group_results {
-        if g.is_superuser || !g.name.to_lowercase().contains(&q_lower) {
-            continue;
+    if want_groups {
+        let q_lower = q.to_lowercase();
+        for g in state.authentik_state.list_groups() {
+            if g.name.to_lowercase().contains(&q_lower) {
+                results.push(json!({
+                    "__search_type": "group",
+                    "name": g.name,
+                }));
+            }
         }
-        results.push(json!({
-            "__search_type": "group",
-            "name": g.name,
-        }));
     }
 
     Ok(Json(results))

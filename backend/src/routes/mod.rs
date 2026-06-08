@@ -14,7 +14,7 @@ pub fn router(state: AppState) -> Router {
             "/api",
             Router::new()
                 .merge(users::router())
-                // .merge(groups::router())
+                .merge(groups::router())
                 .merge(search::router()),
         )
         .route_layer(middleware::from_fn_with_state(

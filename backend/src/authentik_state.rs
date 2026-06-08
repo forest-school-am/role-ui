@@ -13,7 +13,7 @@ use crate::authentik::{get_forest_school_custom_attributes, resolve_role, Authen
 use crate::error::AppError;
 
 fn is_authentik_group(group: &AuthentikGroup) -> bool {
-    group.name.starts_with("authentik")
+    group.name.starts_with("authentik") || group.is_superuser
 }
 
 pub struct AuthentikStateWrapper {
@@ -91,6 +91,22 @@ impl AuthentikStateWrapper {
             AppError::Internal(anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", groupname, ptr.idx).into())
         )?.pk.clone())
     }
+
+    pub fn user_by_pk(&self, pk: UserPkType) -> Result<User, AppError> {
+        let lock = self.state.read().unwrap();
+        let ptr = lock.state.pk_to_user_ptr.get(&pk).copied()
+            .ok_or(AppError::NotFound(format!("User with pk `{}` not found", pk)))?;
+        Ok(lock.state.index(ptr.frontend()).clone())
+    }
+
+    pub fn get_compat_group_by_name(&self, groupname: &GroupIdType) -> Result<AuthentikGroup, AppError> {
+        let lock = self.state.read().unwrap();
+        Ok(lock.state.group_id_to_authentik_group(groupname)?.clone())
+    }
+
+    pub fn all_compat_groups(&self) -> Vec<AuthentikGroup> {
+        self.state.read().unwrap().state.compat_groups.clone()
+    }
 }
 
 async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<AuthentikState, AppError> {
@@ -120,6 +136,9 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
             username: user.username.clone(),
             name: user.name.clone(),
         })));
+    // username → pk reverse index, used to resolve attribute usernames back to PKs
+    let username_to_pk: HashMap<&str, UserPkType> = HashMap::from_iter(authentik_users.iter()
+        .map(|user| (user.username.as_str(), user.pk)));
     let group_links: HashMap<GroupPkType, GroupLink> = HashMap::from_iter(authentik_groups.iter()
         .map(|group| (group.pk.clone(), GroupLink {
             name: group.name.clone(),
@@ -127,75 +146,58 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
 
     let mut user_memberships: HashMap<UserPkType, RoleSplit<GroupLink>> = Default::default();
 
+    // Helper: resolve a username string from attributes to a pk, update memberships,
+    // remove from the plain-members set, and return the UserLink.
+    macro_rules! resolve_named_role {
+        ($group_pk:expr, $username_val:expr, $role_idx:expr, $members:expr) => {{
+            let username: &str = $username_val;
+            if let Some(&pk) = username_to_pk.get(username) {
+                if !user_memberships.contains_key(&pk) {
+                    user_memberships.insert(pk, RoleSplit::default());
+                }
+                user_memberships
+                    .get_mut(&pk)
+                    .unwrap()
+                    .0.as_mut_array()
+                    .get_mut($role_idx)
+                    .expect("Something gone wrong with `enum_map` crate")
+                    .push(group_links.get($group_pk).unwrap().clone());
+                $members.remove(&pk);
+                user_links.get(&pk).cloned()
+            } else {
+                None
+            }
+        }};
+    }
 
     let groups = authentik_groups.iter()
         .map(|group| {
-            let mut members : HashSet<i64> = group.users.iter().cloned().collect();
+            let mut members: HashSet<i64> = group.users.iter().cloned().collect();
 
             let leaders = get_forest_school_custom_attributes(group.attributes.as_ref())
                 .and_then(|a| a.get("leaders"))
                 .and_then(|v| v.as_array())
                 .map(|a| {
                     a.iter()
-                        .filter_map(|entry| {
-                            entry.as_i64()
+                        .filter_map(|entry| entry.as_str())
+                        .filter_map(|username| {
+                            resolve_named_role!(&group.pk, username, GroupRole::Leader.into_usize(), members)
                         })
-                        .filter_map(|entry| {
-                            if !user_memberships.contains_key(&entry) {
-                                user_memberships.insert(entry, RoleSplit::default());
-                            }
-                            user_memberships
-                                .get_mut(&entry)
-                                .unwrap()
-                                .0.as_mut_array()
-                                .get_mut(GroupRole::Leader.into_usize())
-                                .expect("Something gone wrong with `enum_map` crate")
-                                .push(
-                                    group_links
-                                        .get(&group.pk)
-                                        .unwrap()
-                                        .clone()
-                                );
-                            members.remove(&entry);
-                            user_links.get(&entry)
-                        })
-                        .cloned()
                         .collect_vec()
                 })
-                .unwrap_or(vec![])
-                ;
+                .unwrap_or_default();
             let managers = get_forest_school_custom_attributes(group.attributes.as_ref())
                 .and_then(|a| a.get("manager"))
                 .and_then(|v| v.as_array())
                 .map(|a| {
                     a.iter()
-                        .filter_map(|entry| {
-                            entry.as_i64()
+                        .filter_map(|entry| entry.as_str())
+                        .filter_map(|username| {
+                            resolve_named_role!(&group.pk, username, GroupRole::Manager.into_usize(), members)
                         })
-                        .filter_map(|entry| {
-                            if !user_memberships.contains_key(&entry) {
-                                user_memberships.insert(entry, RoleSplit::default());
-                            }
-                            user_memberships
-                                .get_mut(&entry)
-                                .unwrap()
-                                .0.as_mut_array()
-                                .get_mut(GroupRole::Member.into_usize())
-                                .expect("Something gone wrong with `enum_map` crate")
-                                .push(
-                                    group_links
-                                        .get(&group.pk)
-                                        .unwrap()
-                                        .clone()
-                                );
-                            members.remove(&entry);
-                            user_links.get(&entry)
-                        })
-                        .cloned()
                         .collect_vec()
                 })
-                .unwrap_or(vec![])
-                ;
+                .unwrap_or_default();
             let members = members.iter()
                 .filter_map(|pk| {
                     if !user_memberships.contains_key(pk) {
@@ -205,7 +207,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                         .get_mut(pk)
                         .unwrap()
                         .0.as_mut_array()
-                        .get_mut(GroupRole::Leader.into_usize())
+                        .get_mut(GroupRole::Member.into_usize())
                         .expect("Something gone wrong with `enum_map` crate")
                         .push(
                             group_links

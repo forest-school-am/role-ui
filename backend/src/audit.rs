@@ -1,6 +1,4 @@
-use crate::auth::AuthenticatedUser;
 use serde::Serialize;
-use crate::authentik::AuthentikUser;
 use crate::routes::api_models::User;
 // ---------------------------------------------------------------------------
 // Audit event — written as a JSON line to stdout on every write attempt.

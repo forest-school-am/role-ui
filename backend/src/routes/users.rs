@@ -8,16 +8,12 @@ use enum_map::{Enum, EnumMap};
 use serde::Deserialize;
 
 use crate::{
-    authentik::{resolve_role, AuthentikUser},
     error::AppError,
     routes::helpers::{PathParams, PathParamsUsername, UserFromPath},
     AppState,
 };
-use crate::routes::api_models::{GroupLink, GroupRole, RoleSplit, LoginAccount, User, UserLink};
-use itertools;
-use itertools::Itertools;
+use crate::routes::api_models::{User, UserLink};
 use regex::Regex;
-use crate::authentik::get_forest_school_custom_attributes;
 
 pub fn router() -> Router<AppState> {
     Router::new().nest(

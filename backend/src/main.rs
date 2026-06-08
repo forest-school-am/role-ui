@@ -16,15 +16,16 @@ mod error;
 mod routes;
 mod authentik_state;
 
-use auth::{build_token_cache, AuthenticatedUser};
+use auth::build_token_cache;
+use authentik::AuthentikClient;
 use config::Config;
-use crate::authentik_state::{AuthentikStateWrapper};
+use crate::authentik_state::AuthentikStateWrapper;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::MissedTickBehavior;
 
 #[derive(Clone)]
 pub struct AppState {
-    // pub authentik_client: Arc<>,
+    pub authentik_client: Arc<AuthentikClient>,
     pub token_cache: Arc<Cache<String, String>>,
     pub authentik_state: Arc<AuthentikStateWrapper>,
     pub tx: mpsc::Sender<()>,
@@ -84,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
         token_cache: Arc::new(build_token_cache()),
         authentik_state: state_wrapper,
         tx,
-        write_mutex: Mutex::new(())
+        write_mutex: Arc::new(Mutex::new(()))
     };
 
     // Build the SPA static file service.
