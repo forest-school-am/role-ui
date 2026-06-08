@@ -269,18 +269,33 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
 
     let users = authentik_users.iter()
         .map(|user| {
-            let attributes = get_forest_school_custom_attributes(user.attributes.as_ref())
+            let fs = get_forest_school_custom_attributes(user.attributes.as_ref());
+
+            let logins = fs
+                .and_then(|a| a.get("logins"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            let obj = item.as_object()?;
+                            Some(crate::routes::api_models::LoginAccount {
+                                kind: obj.get("kind")?.as_str()?.to_string(),
+                                address: obj.get("address")?.as_str()?.to_string(),
+                            })
+                        })
+                        .collect_vec()
+                })
+                .unwrap_or_default();
+
+            let attributes = fs
                 .and_then(|a| a.get("custom"))
                 .and_then(|v| v.as_array())
                 .map(|arr| {
-                    arr
-                        .iter()
+                    arr.iter()
                         .filter_map(|item| {
-                            item
-                                .as_array()
+                            item.as_array()
                                 .map(|arr| {
-                                    arr
-                                        .iter()
+                                    arr.iter()
                                         .filter_map(|kv| Some(kv.as_str()?.to_string()))
                                         .collect_array::<2>()
                                 })
@@ -288,7 +303,8 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                         })
                         .map_into()
                         .collect_vec()
-                }).unwrap_or(vec![]);
+                })
+                .unwrap_or_default();
 
             let groups = user_memberships.remove(&user.pk).unwrap_or_default();
 
@@ -296,7 +312,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                 username: user.username.clone(),
                 name: user.name.clone(),
                 is_active: user.is_active,
-                logins: vec![],
+                logins,
                 groups,
                 attributes,
             }

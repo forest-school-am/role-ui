@@ -171,14 +171,15 @@ ensure_user() {
     -d '{"password": "Test1234!"}' \
     "$API/core/users/$pk/set_password/" >/dev/null
 
-  # Set telegram attribute if provided
+  # Store telegram as a forest_school login entry so the backend surfaces it
+  # as a LoginAccount {kind:"telegram", address:"@handle"} in the API response
   if [[ -n "$telegram" ]]; then
     curl -s -X PATCH \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
-      -d "{\"attributes\":{\"telegram\":\"$telegram\"}}" \
+      -d "{\"attributes\":{\"forest_school\":{\"logins\":[{\"kind\":\"telegram\",\"address\":\"$telegram\"}]}}}" \
       "$API/core/users/$pk/" > /dev/null
-    info "  Set telegram=$telegram for $username"
+    info "  Set forest_school.logins telegram=$telegram for $username"
   fi
 
   echo "$pk"
@@ -271,27 +272,27 @@ add_user_to_group() {
 }
 
 # =============================================================================
-# Helper: set group attributes (leader + managers)
+# Helper: set group attributes (leader + managers) under the forest_school key
 # =============================================================================
 set_group_attributes() {
   local group_pk="$1"
-  local leader_uuid="$2"    # pass "" for no leader
-  local managers_json="$3"  # JSON array of UUID strings, e.g. '["uuid1"]' or '[]'
+  local leader_username="$2"   # pass "" for no leader
+  local managers_json="$3"     # JSON array of username strings, e.g. '["alice.chen"]' or '[]'
 
-  local attrs
-  if [[ -n "$leader_uuid" ]]; then
-    attrs="{\"leader\":\"$leader_uuid\",\"managers\":$managers_json}"
+  local forest_school
+  if [[ -n "$leader_username" ]]; then
+    forest_school="{\"leaders\":[\"$leader_username\"],\"manager\":$managers_json}"
   else
-    attrs="{\"managers\":$managers_json}"
+    forest_school="{\"leaders\":[],\"manager\":$managers_json}"
   fi
 
   curl -s -X PATCH \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"attributes\":$attrs}" \
+    -d "{\"attributes\":{\"forest_school\":$forest_school}}" \
     "$API/core/groups/$group_pk/" > /dev/null
 
-  info "  Set attributes for group $group_pk: leader=$leader_uuid managers=$managers_json"
+  info "  Set forest_school attrs for group $group_pk: leaders=[\"$leader_username\"] manager=$managers_json"
 }
 
 # =============================================================================
@@ -327,24 +328,6 @@ echo ""
 info "User PKs: alice=$PK_ALICE bob=$PK_BOB carol=$PK_CAROL david=$PK_DAVID eve=$PK_EVE"
 info "         frank=$PK_FRANK grace=$PK_GRACE henry=$PK_HENRY iris=$PK_IRIS jake=$PK_JAKE"
 
-# Fetch UUIDs for role attribute assignment
-UUID_ALICE=$(get_user_uuid  "alice.chen")
-UUID_BOB=$(get_user_uuid    "bob.smith")
-UUID_CAROL=$(get_user_uuid  "carol.jones")
-UUID_EVE=$(get_user_uuid    "eve.morgan")
-UUID_FRANK=$(get_user_uuid  "frank.nguyen")
-UUID_GRACE=$(get_user_uuid  "grace.patel")
-UUID_HENRY=$(get_user_uuid  "henry.torres")
-
-echo ""
-info "User UUIDs (for role attributes):"
-info "  alice=$UUID_ALICE"
-info "  bob=$UUID_BOB"
-info "  carol=$UUID_CAROL"
-info "  eve=$UUID_EVE"
-info "  frank=$UUID_FRANK"
-info "  grace=$UUID_GRACE"
-info "  henry=$UUID_HENRY"
 
 # ---------------------------------------------------------------------------
 # STEP 2: Suspend jake.ross
@@ -459,23 +442,23 @@ echo ""
 info "=== STEP 6: Setting group leaders and managers ==="
 
 # Engineering: leader=alice, managers=[bob]
-set_group_attributes "$PK_ENG" "$UUID_ALICE" "[\"$UUID_BOB\"]"
+set_group_attributes "$PK_ENG" "alice.chen" "[\"bob.smith\"]"
 ok "Engineering: leader=alice.chen, managers=[bob.smith]"
 
 # Marketing: leader=eve, managers=[frank]
-set_group_attributes "$PK_MKT" "$UUID_EVE" "[\"$UUID_FRANK\"]"
+set_group_attributes "$PK_MKT" "eve.morgan" "[\"frank.nguyen\"]"
 ok "Marketing: leader=eve.morgan, managers=[frank.nguyen]"
 
 # Platform: leader=carol, managers=[alice]
-set_group_attributes "$PK_PLATFORM" "$UUID_CAROL" "[\"$UUID_ALICE\"]"
+set_group_attributes "$PK_PLATFORM" "carol.jones" "[\"alice.chen\"]"
 ok "Platform: leader=carol.jones, managers=[alice.chen]"
 
 # Growth: leader=grace, no managers
-set_group_attributes "$PK_GROWTH" "$UUID_GRACE" "[]"
+set_group_attributes "$PK_GROWTH" "grace.patel" "[]"
 ok "Growth: leader=grace.patel, managers=[]"
 
 # DevOps: leader=henry, managers=[carol]
-set_group_attributes "$PK_DEVOPS" "$UUID_HENRY" "[\"$UUID_CAROL\"]"
+set_group_attributes "$PK_DEVOPS" "henry.torres" "[\"carol.jones\"]"
 ok "DevOps: leader=henry.torres, managers=[carol.jones]"
 
 # ---------------------------------------------------------------------------
@@ -513,8 +496,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$API/core/groups/?page_size=50" \
         name,
         pk,
         parents: (.parents // []),
-        leader: (.attributes.leader // "(none)"),
-        managers: (.attributes.managers // []),
+        leader: ((.attributes.forest_school.leaders // []) | first // "(none)"),
+        managers: (.attributes.forest_school.manager // []),
         member_count: (.users | length)
       }
     | [
@@ -558,19 +541,19 @@ else
   warn "[ ] jake.ross is NOT suspended! is_active=$JAKE_ACTIVE"
 fi
 
-# Check alice.chen telegram attribute
-ALICE_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.username=="alice.chen") | .attributes.telegram // "(none)"')
+# Check alice.chen telegram in forest_school.logins
+ALICE_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.username=="alice.chen") | .attributes.forest_school.logins[]? | select(.kind=="telegram") | .address // "(none)"')
 if [[ "$ALICE_TG" == "@alice_chen" ]]; then
-  ok "[x] alice.chen has attributes.telegram=\"@alice_chen\""
+  ok "[x] alice.chen has forest_school.logins telegram=\"@alice_chen\""
 else
   warn "[ ] alice.chen telegram mismatch: got '$ALICE_TG'"
 fi
 
 # Check telegram handles
-USERS_WITH_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.attributes.telegram != null) | .username' | grep -E "^(alice|bob|carol|eve|grace|iris)" | sort | tr '\n' ' ' || true)
+USERS_WITH_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.attributes.forest_school.logins != null) | .username' | grep -E "^(alice|bob|carol|eve|grace|iris)" | sort | tr '\n' ' ' || true)
 ok "[x] Users with telegram: $USERS_WITH_TG"
 
-USERS_WITHOUT_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.attributes.telegram == null) | .username' | grep -E "^(david|frank|henry|jake)" | sort | tr '\n' ' ' || true)
+USERS_WITHOUT_TG=$(echo "$USERS_JSON" | $JQ -r '.results[] | select(.attributes.forest_school.logins == null) | .username' | grep -E "^(david|frank|henry|jake)" | sort | tr '\n' ' ' || true)
 ok "[x] Users without telegram: $USERS_WITHOUT_TG"
 
 # Check DevOps native parents array — should have exactly 2 entries
@@ -592,41 +575,41 @@ ROOT_GROUPS=$(echo "$GROUPS_JSON" | $JQ '[.results[] | select(.name | test("^(En
 ok "[x] Root groups (parents=[]): $ROOT_GROUPS"
 
 # Check alice is leader of Engineering AND manager of Platform
-ENG_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Engineering") | .attributes.leader')
-PLATFORM_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Platform") | .attributes.managers[]?')
-if [[ "$ENG_LEADER" == "$UUID_ALICE" ]]; then
+ENG_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Engineering") | .attributes.forest_school.leaders[0] // ""')
+PLATFORM_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Platform") | .attributes.forest_school.manager[]?')
+if [[ "$ENG_LEADER" == "alice.chen" ]]; then
   ok "[x] alice.chen is leader of Engineering"
 fi
-if echo "$PLATFORM_MGRS" | grep -q "$UUID_ALICE" 2>/dev/null; then
+if echo "$PLATFORM_MGRS" | grep -q "alice.chen" 2>/dev/null; then
   ok "[x] alice.chen is manager of Platform (leader+manager in different groups)"
 fi
 
 # Check carol: leader of Platform, manager of DevOps
-PLATFORM_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Platform") | .attributes.leader')
-DEVOPS_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="DevOps") | .attributes.managers[]?')
-if [[ "$PLATFORM_LEADER" == "$UUID_CAROL" ]]; then
+PLATFORM_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Platform") | .attributes.forest_school.leaders[0] // ""')
+DEVOPS_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="DevOps") | .attributes.forest_school.manager[]?')
+if [[ "$PLATFORM_LEADER" == "carol.jones" ]]; then
   ok "[x] carol.jones is leader of Platform"
 fi
-if echo "$DEVOPS_MGRS" | grep -q "$UUID_CAROL" 2>/dev/null; then
+if echo "$DEVOPS_MGRS" | grep -q "carol.jones" 2>/dev/null; then
   ok "[x] carol.jones is manager of DevOps (leader+manager in different groups)"
 fi
 
 # Check bob: manager in Engineering, plain member in Marketing
-ENG_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Engineering") | .attributes.managers[]?')
-MKT_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Marketing") | .attributes.leader')
-MKT_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Marketing") | .attributes.managers[]?')
-if echo "$ENG_MGRS" | grep -q "$UUID_BOB" 2>/dev/null; then
+ENG_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Engineering") | .attributes.forest_school.manager[]?')
+MKT_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Marketing") | .attributes.forest_school.leaders[0] // ""')
+MKT_MGRS=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="Marketing") | .attributes.forest_school.manager[]?')
+if echo "$ENG_MGRS" | grep -q "bob.smith" 2>/dev/null; then
   ok "[x] bob.smith is manager in Engineering"
 fi
-if [[ "$MKT_LEADER" != "$UUID_BOB" ]]; then
-  if ! echo "$MKT_MGRS" | grep -q "$UUID_BOB" 2>/dev/null; then
+if [[ "$MKT_LEADER" != "bob.smith" ]]; then
+  if ! echo "$MKT_MGRS" | grep -q "bob.smith" 2>/dev/null; then
     ok "[x] bob.smith is plain member in Marketing (manager in one, member in another)"
   fi
 fi
 
 # Check henry: leader of DevOps only
-DEVOPS_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="DevOps") | .attributes.leader')
-if [[ "$DEVOPS_LEADER" == "$UUID_HENRY" ]]; then
+DEVOPS_LEADER=$(echo "$GROUPS_JSON" | $JQ -r '.results[] | select(.name=="DevOps") | .attributes.forest_school.leaders[0] // ""')
+if [[ "$DEVOPS_LEADER" == "henry.torres" ]]; then
   ok "[x] henry.torres is leader of DevOps only"
 fi
 
