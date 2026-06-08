@@ -1,22 +1,8 @@
-// Core API types from the generated client
-export type {
-  GroupRole,
-  UserLink,
-  GroupLink,
-  LoginAccount,
-  User,
-  Group,
-  GroupRoleSplit,
-  UserGroupRoleSplit,
-  SearchResult,
-  SearchResultUser,
-  SearchResultGroup,
-  ApiError,
-} from '../api/generated/api';
+// API types used across the frontend — sourced from the generated client
+export type { GroupRole, UserLink, GroupLink, User } from '../api/generated/api';
 
-// Backward-compatible aliases used throughout the codebase
+// GroupMembersByRole: members of a group split by role
 export type { GroupRoleSplit as GroupMembersByRole } from '../api/generated/api';
-export type { UserGroupRoleSplit as UserGroupsByRole } from '../api/generated/api';
 
 // GroupDetail extends the API Group with the frontend-only is_virtual flag
 import type { Group } from '../api/generated/api';

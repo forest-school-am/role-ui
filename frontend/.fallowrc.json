@@ -2,7 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "src/index.{ts,tsx,js,jsx}",
-    "src/main.{ts,tsx,js,jsx}"
+    "src/main.{ts,tsx,js,jsx}",
+    "src/test/setup.ts"
+  ],
+  "ignorePatterns": [
+    "src/api/generated/**",
+    "src/api/mutator.ts",
+    "orval.config.ts"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste
@@ -16,5 +22,6 @@
     //   "**/generated/**"     // OpenAPI, Protobuf codegen
     // ]
   },
+  "ignoreDependencies": ["orval"],
   "rules": {}
 }
