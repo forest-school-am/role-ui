@@ -18,9 +18,8 @@ use crate::routes::api_models::{Group, GroupRole, User};
 labeled_enum! {
     pub enum PathParams {
         GroupName => "group_name",
-        UserPK => "user_pk",
-        ChildGroupName => "child_group_name",
         Username => "username",
+        ChildGroupName => "child_group_name",
     }
 }
 

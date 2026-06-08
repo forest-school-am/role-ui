@@ -1,0 +1,673 @@
+openapi: 3.1.0
+info:
+  title: Authentik Role UI Backend
+  version: 1.0.0
+
+servers:
+  - url: /api
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    UserLink:
+      type: object
+      required: [username, name]
+      properties:
+        username:
+          type: string
+        name:
+          type: string
+
+    GroupLink:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    LoginAccount:
+      type: object
+      required: [kind, address]
+      properties:
+        kind:
+          type: string
+          description: e.g. "email", "telegram", "google"
+        address:
+          type: string
+
+    GroupRoleSplit:
+      description: Members of a group split by their role.
+      type: object
+      required: [leader, manager, member]
+      properties:
+        leader:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserLink'
+        manager:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserLink'
+        member:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserLink'
+
+    UserGroupRoleSplit:
+      description: Groups a user belongs to, split by their role in each group.
+      type: object
+      required: [leader, manager, member]
+      properties:
+        leader:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupLink'
+        manager:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupLink'
+        member:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupLink'
+
+    User:
+      type: object
+      required: [username, name, is_active, logins, groups, attributes]
+      properties:
+        username:
+          type: string
+        name:
+          type: string
+        is_active:
+          type: boolean
+        logins:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoginAccount'
+        groups:
+          $ref: '#/components/schemas/UserGroupRoleSplit'
+        attributes:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: string
+              - type: string
+            minItems: 2
+            maxItems: 2
+
+    Group:
+      type: object
+      required: [name, members, children, parents]
+      properties:
+        name:
+          type: string
+        members:
+          $ref: '#/components/schemas/GroupRoleSplit'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupLink'
+        parents:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupLink'
+        color:
+          type: string
+          nullable: true
+
+    SearchResultUser:
+      type: object
+      required: [__search_type, username, name]
+      properties:
+        __search_type:
+          type: string
+          enum: [user]
+        username:
+          type: string
+        name:
+          type: string
+
+    SearchResultGroup:
+      type: object
+      required: [__search_type, name]
+      properties:
+        __search_type:
+          type: string
+          enum: [group]
+        name:
+          type: string
+
+    SearchResult:
+      oneOf:
+        - $ref: '#/components/schemas/SearchResultUser'
+        - $ref: '#/components/schemas/SearchResultGroup'
+      discriminator:
+        propertyName: __search_type
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Caller lacks the required role in this group.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: User or group not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid request parameters or body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  parameters:
+    GroupName:
+      name: group_name
+      in: path
+      required: true
+      schema:
+        type: string
+    Username:
+      name: username
+      in: path
+      required: true
+      schema:
+        type: string
+    ChildGroupName:
+      name: child_group_name
+      in: path
+      required: true
+      schema:
+        type: string
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # Users
+  # ---------------------------------------------------------------------------
+
+  /users:
+    get:
+      summary: Search users
+      description: >
+        Returns users whose username, display name, or login addresses match the
+        `search` regex. Returns an empty array when `search` is absent or blank.
+      parameters:
+        - name: search
+          in: query
+          required: false
+          description: Regex pattern to match against username, name, and login addresses.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching users (may be empty).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserLink'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me:
+    get:
+      summary: Get caller's full profile
+      responses:
+        '200':
+          description: Full profile of the authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/{username}:
+    get:
+      summary: Get a user by username
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: Full user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Groups
+  # ---------------------------------------------------------------------------
+
+  /groups:
+    get:
+      summary: List all groups
+      responses:
+        '200':
+          description: All groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /groups/{group_name}:
+    get:
+      summary: Get a group by name
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      responses:
+        '200':
+          description: Group detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Disband a group
+      description: >
+        Permanently deletes the group. Requires caller to be the group's **leader**.
+        Fails with 400 if the group has any children — detach or disband them first.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      responses:
+        '200':
+          description: Group disbanded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/members:
+    post:
+      summary: Add a member
+      description: >
+        Adds a user to the group as a plain member. Idempotent: if the user is
+        already a member in any role the call succeeds without changes. Requires
+        caller to be **manager or leader**.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: Member added (or was already present).
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/members/{username}:
+    delete:
+      summary: Remove a member
+      description: >
+        Removes a user from the group. Idempotent if the user is not a member.
+        Constraints enforced by caller role:
+
+        - Leaders cannot be removed by anyone.
+        - Managers can only be removed by a **leader**.
+        - Plain members can be removed by any **manager or leader**.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: Member removed (or was not present).
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/managers:
+    post:
+      summary: Promote a member to manager
+      description: >
+        Grants the manager role to an existing group member. Requires caller to be
+        the group's **leader**. The user must already be a member; idempotent if
+        they are already a manager.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: Manager role granted.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/managers/{username}:
+    delete:
+      summary: Demote a manager
+      description: >
+        Strips the manager role from a user, reverting them to a plain member.
+        Requires caller to be the group's **leader**. Idempotent if the user is
+        not a manager.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: Manager role removed (or user was not a manager).
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/leader/resign:
+    post:
+      summary: Resign as leader
+      description: >
+        Transfers leadership to a successor. The successor must be a current
+        **manager** of the group; they are promoted to leader and removed from
+        the managers list. Requires caller to be the current **leader**.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  description: Username of the manager who will become the new leader.
+      responses:
+        '200':
+          description: Leadership transferred.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/subgroups:
+    post:
+      summary: Create a new child group
+      description: >
+        Creates a brand-new group as a child of this one. The calling **leader**
+        is automatically added as a member and assigned as leader of the new group.
+        Name must be 1–150 characters.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 150
+      responses:
+        '200':
+          description: Child group created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupLink'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/children:
+    post:
+      summary: Attach an existing group as a child
+      description: >
+        Makes an existing group a child of this one. Requires caller to be the
+        **leader** of the parent group. Rejected with 400 if the attachment would
+        create a cycle in the group hierarchy.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_name]
+              properties:
+                group_name:
+                  type: string
+                  description: Name of the existing group to attach as a child.
+      responses:
+        '200':
+          description: Child attached.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/children/{child_group_name}:
+    delete:
+      summary: Detach a child group
+      description: >
+        Removes the parent–child relationship without deleting either group.
+        Requires caller to be the **leader** of the parent group.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+        - $ref: '#/components/parameters/ChildGroupName'
+      responses:
+        '200':
+          description: Child detached.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/color:
+    put:
+      summary: Set group color
+      description: >
+        Updates the display color of a group. Requires caller to be **manager or
+        leader**. Color value is a free-form string (e.g. a hex code like
+        `"FF0000"`).
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [color]
+              properties:
+                color:
+                  type: string
+                  example: FF0000
+      responses:
+        '200':
+          description: Color updated.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------------------
+
+  /search:
+    get:
+      summary: Mixed user + group search
+      description: >
+        Searches users and/or groups matching the query term. User matching uses
+        the term as a regex against username, name, and login addresses. Group
+        matching is a case-insensitive substring match on the group name.
+        At least one result type must be requested.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search term. Treated as a regex for users; substring match for groups.
+          schema:
+            type: string
+        - name: types
+          in: query
+          required: false
+          description: Comma-separated list of result types to include. Defaults to `"user,group"`.
+          schema:
+            type: string
+            default: "user,group"
+            example: "user,group"
+      responses:
+        '200':
+          description: Search results. Each item includes a `__search_type` discriminator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /search-link-gen:
+    get:
+      summary: Frontend link-generator helper
+      description: >
+        Returns a static JavaScript function `generateSearchLink(obj)` that maps
+        a search result object to its frontend URL. This endpoint is intentionally
+        **unauthenticated** as it contains no user data.
+      security: []
+      responses:
+        '200':
+          description: JS helper function.
+          content:
+            application/javascript:
+              schema:
+                type: string

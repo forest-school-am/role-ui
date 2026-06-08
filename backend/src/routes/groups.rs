@@ -13,7 +13,7 @@ use crate::{
     error::AppError,
     routes::helpers::{
         GroupAccess, GroupFromPath, Leader, ManagerOrLeader, PathParams, PathParamsChildGroupName,
-        PathParamsGroupName, PathParamsUserPK, UserFromPath,
+        PathParamsGroupName, PathParamsUsername, UserFromPath,
     },
     AppState,
 };
@@ -31,12 +31,12 @@ pub fn router() -> Router<AppState> {
                 .route("/", delete(disband_group))
                 .route("/members", post(add_member))
                 .route(
-                    formatcp!("/members/:{}", PathParams::UserPK.to_static_str()),
+                    formatcp!("/members/:{}", PathParams::Username.to_static_str()),
                     delete(remove_member),
                 )
                 .route("/managers", post(add_manager))
                 .route(
-                    formatcp!("/managers/:{}", PathParams::UserPK.to_static_str()),
+                    formatcp!("/managers/:{}", PathParams::Username.to_static_str()),
                     delete(remove_manager),
                 )
                 .route("/leader/resign", post(resign_leader))
@@ -173,7 +173,7 @@ async fn remove_member(
         role: caller_role,
         ..
     }: GroupAccess<ManagerOrLeader>,
-    UserFromPath { user: target, .. }: UserFromPath<PathParamsUserPK>,
+    UserFromPath { user: target, .. }: UserFromPath<PathParamsUsername>,
     _write_lock: WriteLock,
 ) -> Result<Json<()>, AppError> {
     let target_role = state
@@ -266,7 +266,7 @@ async fn add_manager(
 async fn remove_manager(
     State(state): State<AppState>,
     GroupAccess { group, caller, .. }: GroupAccess<Leader>,
-    UserFromPath { user: target, .. }: UserFromPath<PathParamsUserPK>,
+    UserFromPath { user: target, .. }: UserFromPath<PathParamsUsername>,
     _write_lock: WriteLock,
 ) -> Result<Json<()>, AppError> {
     // Idempotent: if not a manager, nothing to do
@@ -350,7 +350,7 @@ async fn attach_child_group(
     let child_compat = state.authentik_state.get_compat_group_by_name(&child_name)?;
     let parent_pk = state.authentik_state.groupname_to_pk(&parent.name)?;
     let child_pk = state.authentik_state.groupname_to_pk(&child_name)?;
-    
+
     let mut parents = child_compat.parents;
     if !parents.contains(&parent_pk) {
         parents.push(parent_pk);
