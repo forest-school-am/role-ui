@@ -60,7 +60,7 @@ impl<PP: PathParamsVariant> FromRequestParts<AppState> for GroupFromPath<PP> {
                 AppError::BadRequest(format!("missing `{}` parameter", PP::to_static_str()))
             })?;
             Ok(GroupFromPath {
-                group: state.authentik_state.get_group_by_name(&group_name)?,
+                group: state.authentik_state.get_group_by_name(&group_name).await?,
                 _p: std::marker::PhantomData,
             })
         })
@@ -92,7 +92,7 @@ impl<PP: PathParamsVariant> FromRequestParts<AppState> for UserFromPath<PP> {
             let username = params.get(PP::to_static_str()).ok_or_else(|| {
                 AppError::BadRequest(format!("missing `{}` parameter", PP::to_static_str()))
             })?;
-            let user = state.authentik_state.user_by_username(username)?;
+            let user = state.authentik_state.user_by_username(username).await?;
             Ok(UserFromPath {
                 user,
                 _p: std::marker::PhantomData,

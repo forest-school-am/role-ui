@@ -39,7 +39,7 @@ async fn get_me(
     State(state): State<AppState>,
     caller: User,
 ) -> Result<Json<User>, AppError> {
-    let user = state.authentik_state.user_by_username(&caller.username)?;
+    let user = state.authentik_state.user_by_username(&caller.username).await?;
     Ok(Json(user))
 }
 
@@ -50,7 +50,7 @@ async fn get_user(
         user, ..
     }: UserFromPath<PathParamsUsername>,
 ) -> Result<Json<User>, AppError> {
-    let user = state.authentik_state.user_by_username(&user.username)?;
+    let user = state.authentik_state.user_by_username(&user.username).await?;
     Ok(Json(user))
 }
 
@@ -70,5 +70,5 @@ async fn search_users(
                 .map_err(|e| AppError::BadRequest(format!("Could not search for `{}`", term)))?
         );
 
-    Ok(Json(state.authentik_state.search_users_to_links(&term)))
+    Ok(Json(state.authentik_state.search_users_to_links(&term).await))
 }

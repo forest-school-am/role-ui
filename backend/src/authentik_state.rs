@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
-use std::sync::{LockResult, RwLock, RwLockReadGuard};
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use anyhow::anyhow;
-use enum_map::{enum_map, Enum, EnumMap};
+use enum_map::{Enum, EnumMap};
 use itertools::Itertools;
 use regex::Regex;
-use crate::AppState;
+use tokio::sync::{mpsc, watch};
 use crate::routes::api_models::{Group, GroupLink, GroupRole, RoleSplit, User, UserLink};
 use crate::authentik::{get_forest_school_custom_attributes, resolve_role, AuthentikClient, AuthentikGroup, AuthentikUser};
 use crate::error::AppError;
@@ -17,91 +18,118 @@ fn is_authentik_group(group: &AuthentikGroup) -> bool {
 }
 
 pub struct AuthentikStateWrapper {
-    state: RwLock<AuthentikStateCache>,
-}
-
-struct AuthentikStateCache {
-    state: AuthentikState,
-    dirty: bool,
-    last_update: Instant,
+    state: RwLock<AuthentikState>,
+    version_tx: watch::Sender<u64>,
+    dirty: AtomicBool,
 }
 
 impl AuthentikStateWrapper {
     pub fn new() -> Self {
+        let (version_tx, _) = watch::channel(0u64);
         Self {
-            state: RwLock::new(AuthentikStateCache {
-                state: Default::default(),
-                dirty: true,
-                last_update: Instant::now(),
-            }),
+            state: RwLock::new(Default::default()),
+            version_tx,
+            dirty: AtomicBool::new(false),
         }
     }
 
     pub async fn update(&self, authentik_client: &AuthentikClient) -> Result<(), AppError> {
         let new_state = update_authentik_state(authentik_client).await?;
-        let mut lock = self.state.write().unwrap();
-        lock.state = new_state;
-        lock.dirty = false;
-        lock.last_update = Instant::now();
+        {
+            let mut lock = self.state.write().unwrap();
+            *lock = new_state;
+        }
+        let v = *self.version_tx.borrow();
+        let _ = self.version_tx.send(v + 1);
+        self.dirty.store(false, Ordering::Release);
         Ok(())
     }
 
-    pub fn user_by_username(&self, username: &String) -> Result<User, AppError> {
-        self.state.read().unwrap().state.user_id_to_user(username).cloned()
+    /// Marks the cache stale, triggers an immediate refresh, and waits for it to complete.
+    /// Call this after every mutation so the response reflects the new state.
+    pub async fn invalidate_and_wait(&self, tx: &mpsc::Sender<()>) -> Result<(), AppError> {
+        let before = *self.version_tx.borrow();
+        self.dirty.store(true, Ordering::Release);
+        let _ = tx.send(()).await;
+        self.version_tx
+            .subscribe()
+            .wait_for(|v| *v > before)
+            .await
+            .map_err(|_| AppError::Internal(anyhow!("cache refresh channel closed").into()))?;
+        Ok(())
     }
 
-    pub fn search_users_to_links(&self, re: &Regex) -> Vec<UserLink> {
-        self.state.read().unwrap().state.users.iter()
+    /// Suspends the caller until any in-progress refresh completes.
+    async fn wait_if_dirty(&self) {
+        if self.dirty.load(Ordering::Acquire) {
+            let before = *self.version_tx.borrow();
+            let _ = self.version_tx.subscribe().wait_for(|v| *v > before).await;
+        }
+    }
+
+    pub async fn user_by_username(&self, username: &String) -> Result<User, AppError> {
+        self.wait_if_dirty().await;
+        self.state.read().unwrap().user_id_to_user(username).cloned()
+    }
+
+    pub async fn search_users_to_links(&self, re: &Regex) -> Vec<UserLink> {
+        self.wait_if_dirty().await;
+        self.state.read().unwrap().users.iter()
             .filter(|u| u.matches(re))
             .map(|u| UserLink::from(u))
             .collect_vec()
     }
 
-    pub fn list_groups(&self) -> Vec<Group> {
-        self.state.read().unwrap().state.groups.clone()
+    pub async fn list_groups(&self) -> Vec<Group> {
+        self.wait_if_dirty().await;
+        self.state.read().unwrap().groups.clone()
     }
 
-    pub fn get_group_by_name(&self, groupname: &String) -> Result<Group, AppError> {
-        self.state.read().unwrap().state.group_id_to_group(groupname).cloned()
+    pub async fn get_group_by_name(&self, groupname: &String) -> Result<Group, AppError> {
+        self.wait_if_dirty().await;
+        self.state.read().unwrap().group_id_to_group(groupname).cloned()
     }
 
-    pub fn user_group_role_relation(&self, groupname: &GroupIdType, username: &UserIdType) -> Result<Option<GroupRole>, AppError> {
+    pub async fn user_group_role_relation(&self, groupname: &GroupIdType, username: &UserIdType) -> Result<Option<GroupRole>, AppError> {
+        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
-        let ptr = lock.state.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
-        let map = lock.state.group_users
-            .get(
-                ptr.idx
-            ).ok_or(
-            AppError::Internal(anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, ptr.idx).into()))?;
+        let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
+        let map = lock.group_users
+            .get(ptr.idx)
+            .ok_or(AppError::Internal(anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, ptr.idx).into()))?;
         Ok(map.get(username).cloned())
     }
 
-    pub fn username_to_pk(&self, username: &UserIdType) -> Result<UserPkType, AppError> {
+    pub async fn username_to_pk(&self, username: &UserIdType) -> Result<UserPkType, AppError> {
+        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
-        let ptr = lock.state.user_id_to_user_ptr.get(username).ok_or(AppError::NotFound(format!("User `{}` not found", username)))?;
-        Ok(lock.state.compat_users.get(ptr.idx).ok_or(
+        let ptr = lock.user_id_to_user_ptr.get(username).ok_or(AppError::NotFound(format!("User `{}` not found", username)))?;
+        Ok(lock.compat_users.get(ptr.idx).ok_or(
             AppError::Internal(anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", username, ptr.idx).into())
         )?.pk)
     }
 
-    pub fn groupname_to_pk(&self, groupname: &GroupIdType) -> Result<GroupPkType, AppError> {
+    pub async fn groupname_to_pk(&self, groupname: &GroupIdType) -> Result<GroupPkType, AppError> {
+        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
-        let ptr = lock.state.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("User `{}` not found", groupname)))?;
-        Ok(lock.state.compat_groups.get(ptr.idx).ok_or(
-            AppError::Internal(anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", groupname, ptr.idx).into())
+        let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
+        Ok(lock.compat_groups.get(ptr.idx).ok_or(
+            AppError::Internal(anyhow!("State invariant failed: compat_group for groupname `{}` at idx `{}`", groupname, ptr.idx).into())
         )?.pk.clone())
     }
 
-    pub fn user_by_pk(&self, pk: UserPkType) -> Result<User, AppError> {
+    pub async fn user_by_pk(&self, pk: UserPkType) -> Result<User, AppError> {
+        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
-        let ptr = lock.state.pk_to_user_ptr.get(&pk).copied()
+        let ptr = lock.pk_to_user_ptr.get(&pk).copied()
             .ok_or(AppError::NotFound(format!("User with pk `{}` not found", pk)))?;
-        Ok(lock.state.index(ptr.frontend()).clone())
+        Ok(lock.index(ptr.frontend()).clone())
     }
 
-    pub fn get_compat_group_by_name(&self, groupname: &GroupIdType) -> Result<AuthentikGroup, AppError> {
+    pub async fn get_compat_group_by_name(&self, groupname: &GroupIdType) -> Result<AuthentikGroup, AppError> {
+        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
-        Ok(lock.state.group_id_to_authentik_group(groupname)?.clone())
+        Ok(lock.group_id_to_authentik_group(groupname)?.clone())
     }
 }
 

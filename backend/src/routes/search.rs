@@ -67,7 +67,7 @@ async fn search(
         let term = Regex::new(&q).unwrap_or_else(|_| {
             Regex::new(&regex::escape(&q)).expect("escaped regex must be valid")
         });
-        for u in state.authentik_state.search_users_to_links(&term) {
+        for u in state.authentik_state.search_users_to_links(&term).await {
             results.push(json!({
                 "__search_type": "user",
                 "username": u.username,
@@ -78,7 +78,7 @@ async fn search(
 
     if want_groups {
         let q_lower = q.to_lowercase();
-        for g in state.authentik_state.list_groups() {
+        for g in state.authentik_state.list_groups().await {
             if g.name.to_lowercase().contains(&q_lower) {
                 results.push(json!({
                     "__search_type": "group",
