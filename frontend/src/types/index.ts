@@ -1,63 +1,31 @@
-// Roles a user can have within a single group
-export type GroupRole = "leader" | "manager" | "member";
+// Core API types from the generated client
+export type {
+  GroupRole,
+  UserLink,
+  GroupLink,
+  LoginAccount,
+  User,
+  Group,
+  GroupRoleSplit,
+  UserGroupRoleSplit,
+  SearchResult,
+  SearchResultUser,
+  SearchResultGroup,
+  ApiError,
+} from '../api/generated/api';
 
-// A login/contact account stored on a user (email, telegram, google, …)
-export interface LoginAccount {
-  kind: string;    // "email" | "telegram" | "google" | ...
-  address: string;
-}
+// Backward-compatible aliases used throughout the codebase
+export type { GroupRoleSplit as GroupMembersByRole } from '../api/generated/api';
+export type { UserGroupRoleSplit as UserGroupsByRole } from '../api/generated/api';
 
-// Minimal user info used inside group member lists and search results
-export interface UserLink {
-  username: string;
-  name: string;
-}
+// GroupDetail extends the API Group with the frontend-only is_virtual flag
+import type { Group } from '../api/generated/api';
+export type GroupDetail = Group & { is_virtual?: boolean };
 
-// Minimal group info used inside user profiles, parent/child lists
-export interface GroupLink {
-  name: string;
-}
+// UI-only types (not part of the API)
+export type CrownVariant = 'gold' | 'silver';
+export type CrownSize = 'sm' | 'md';
 
-// Group members organised by role (backend: RoleSplit<UserLink>)
-export interface GroupMembersByRole {
-  leader: UserLink[];
-  manager: UserLink[];
-  member: UserLink[];
-}
-
-// User's group memberships organised by role (backend: RoleSplit<GroupLink>)
-export interface UserGroupsByRole {
-  leader: GroupLink[];
-  manager: GroupLink[];
-  member: GroupLink[];
-}
-
-// Full user profile (response from GET /api/users/me and GET /api/users/:username)
-export interface User {
-  username: string;
-  name: string;
-  is_active: boolean;
-  logins: LoginAccount[];
-  groups: UserGroupsByRole;
-  attributes: [string, string][];
-}
-
-// Full group detail (response from GET /api/groups and GET /api/groups/:name)
-export interface GroupDetail {
-  name: string;
-  members: GroupMembersByRole;
-  children: GroupLink[];
-  parents: GroupLink[];
-  color?: string;
-  is_virtual?: boolean;
-}
-
-// Mutation success response (used for add/remove member, manager, leader)
-export interface MutationSuccess {
-  ok: true;
-}
-
-// React Flow node data payload for GroupNode
 export interface GroupNodeData extends Record<string, unknown> {
   groupName: string;
   detail: GroupDetail | null;
@@ -66,14 +34,7 @@ export interface GroupNodeData extends Record<string, unknown> {
   isVirtual?: boolean;
 }
 
-// Discriminated union for the active panel state in StructurePage
 export type PanelState =
   | { kind: 'none' }
   | { kind: 'groupPreview'; groupName: string; isVirtual?: boolean }
   | { kind: 'userPreview'; username: string };
-
-// CrownIcon variant
-export type CrownVariant = "gold" | "silver";
-
-// CrownIcon size
-export type CrownSize = "sm" | "md";

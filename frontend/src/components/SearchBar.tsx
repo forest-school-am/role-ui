@@ -62,7 +62,7 @@ export default function SearchBar({ onNavigate }: SearchBarProps) {
   const hasResults = userResults.length > 0 || groupResults.length > 0;
 
   const handleSelect = (result: UserSearchResult | GroupSearchResult) => {
-    let url: string;
+    let url = '';
     if (generateLink) {
       url = generateLink(result);
     } else {

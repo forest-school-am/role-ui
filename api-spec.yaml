@@ -16,6 +16,10 @@ components:
       scheme: bearer
 
   schemas:
+    GroupRole:
+      type: string
+      enum: [leader, manager, member]
+
     UserLink:
       type: object
       required: [username, name]
@@ -122,7 +126,6 @@ components:
             $ref: '#/components/schemas/GroupLink'
         color:
           type: string
-          nullable: true
 
     SearchResultUser:
       type: object
@@ -153,7 +156,7 @@ components:
       discriminator:
         propertyName: __search_type
 
-    Error:
+    ApiError:
       type: object
       required: [error]
       properties:
@@ -166,25 +169,25 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ApiError'
     Forbidden:
       description: Caller lacks the required role in this group.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ApiError'
     NotFound:
       description: User or group not found.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ApiError'
     BadRequest:
       description: Invalid request parameters or body.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ApiError'
 
   parameters:
     GroupName:
@@ -214,6 +217,7 @@ paths:
 
   /users:
     get:
+      operationId: searchUsers
       summary: Search users
       description: >
         Returns users whose username, display name, or login addresses match the
@@ -239,6 +243,7 @@ paths:
 
   /users/me:
     get:
+      operationId: getMe
       summary: Get caller's full profile
       responses:
         '200':
@@ -252,6 +257,7 @@ paths:
 
   /users/{username}:
     get:
+      operationId: getUser
       summary: Get a user by username
       parameters:
         - $ref: '#/components/parameters/Username'
@@ -273,6 +279,7 @@ paths:
 
   /groups:
     get:
+      operationId: getGroups
       summary: List all groups
       responses:
         '200':
@@ -288,6 +295,7 @@ paths:
 
   /groups/{group_name}:
     get:
+      operationId: getGroup
       summary: Get a group by name
       parameters:
         - $ref: '#/components/parameters/GroupName'
@@ -304,6 +312,7 @@ paths:
           $ref: '#/components/responses/NotFound'
 
     delete:
+      operationId: disbandGroup
       summary: Disband a group
       description: >
         Permanently deletes the group. Requires caller to be the group's **leader**.
@@ -328,6 +337,7 @@ paths:
 
   /groups/{group_name}/members:
     post:
+      operationId: addMember
       summary: Add a member
       description: >
         Adds a user to the group as a plain member. Idempotent: if the user is
@@ -363,6 +373,7 @@ paths:
 
   /groups/{group_name}/members/{username}:
     delete:
+      operationId: removeMember
       summary: Remove a member
       description: >
         Removes a user from the group. Idempotent if the user is not a member.
@@ -392,6 +403,7 @@ paths:
 
   /groups/{group_name}/managers:
     post:
+      operationId: addManager
       summary: Promote a member to manager
       description: >
         Grants the manager role to an existing group member. Requires caller to be
@@ -427,6 +439,7 @@ paths:
 
   /groups/{group_name}/managers/{username}:
     delete:
+      operationId: removeManager
       summary: Demote a manager
       description: >
         Strips the manager role from a user, reverting them to a plain member.
@@ -451,6 +464,7 @@ paths:
 
   /groups/{group_name}/leader/resign:
     post:
+      operationId: resignLeader
       summary: Resign as leader
       description: >
         Transfers leadership to a successor. The successor must be a current
@@ -487,6 +501,7 @@ paths:
 
   /groups/{group_name}/subgroups:
     post:
+      operationId: createSubgroup
       summary: Create a new child group
       description: >
         Creates a brand-new group as a child of this one. The calling **leader**
@@ -524,6 +539,7 @@ paths:
 
   /groups/{group_name}/children:
     post:
+      operationId: addChildGroup
       summary: Attach an existing group as a child
       description: >
         Makes an existing group a child of this one. Requires caller to be the
@@ -560,6 +576,7 @@ paths:
 
   /groups/{group_name}/children/{child_group_name}:
     delete:
+      operationId: detachChildGroup
       summary: Detach a child group
       description: >
         Removes the parent–child relationship without deleting either group.
@@ -583,6 +600,7 @@ paths:
 
   /groups/{group_name}/color:
     put:
+      operationId: setGroupColor
       summary: Set group color
       description: >
         Updates the display color of a group. Requires caller to be **manager or
@@ -621,6 +639,7 @@ paths:
 
   /search:
     get:
+      operationId: searchAll
       summary: Mixed user + group search
       description: >
         Searches users and/or groups matching the query term. User matching uses
@@ -658,6 +677,7 @@ paths:
 
   /search-link-gen:
     get:
+      operationId: getSearchLinkGen
       summary: Frontend link-generator helper
       description: >
         Returns a static JavaScript function `generateSearchLink(obj)` that maps

@@ -1,26 +1,12 @@
-import apiClient from './client';
+import { searchAll as _searchAll, getSearchLinkGen } from './generated';
 
-export interface UserSearchResult {
-  __search_type: 'user';
-  username: string;
-  name: string;
-}
+export { getSearchLinkGen };
+export type { SearchResult, SearchResultUser, SearchResultGroup } from './generated';
+// Backward-compatible aliases
+export type { SearchResultUser as UserSearchResult, SearchResultGroup as GroupSearchResult } from './generated';
 
-export interface GroupSearchResult {
-  __search_type: 'group';
-  name: string;
-}
-
-export type SearchResult = UserSearchResult | GroupSearchResult;
-
-export async function searchAll(q: string, types?: ('user' | 'group')[]): Promise<SearchResult[]> {
-  const params: Record<string, string> = { q };
+export const searchAll = (q: string, types?: ('user' | 'group')[]) => {
+  const params: { q: string; types?: string } = { q };
   if (types && types.length > 0) params.types = types.join(',');
-  const { data } = await apiClient.get<SearchResult[]>('/api/search', { params });
-  return data;
-}
-
-export async function getSearchLinkGen(): Promise<string> {
-  const { data } = await apiClient.get<string>('/api/search-link-gen');
-  return data;
-}
+  return _searchAll(params);
+};

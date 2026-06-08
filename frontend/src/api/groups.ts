@@ -1,119 +1,34 @@
-import apiClient from "./client";
-import type { GroupDetail, MutationSuccess } from "../types";
+import {
+  getGroups,
+  getGroup,
+  disbandGroup,
+  removeMember,
+  removeManager,
+  detachChildGroup,
+  addMember as _addMember,
+  addManager as _addManager,
+  resignLeader as _resignLeader,
+  createSubgroup as _createSubgroup,
+  addChildGroup as _addChildGroup,
+  setGroupColor as _setGroupColor,
+} from './generated';
 
-export async function getGroups(): Promise<GroupDetail[]> {
-  const response = await apiClient.get<GroupDetail[]>("/api/groups");
-  return response.data;
-}
+export { getGroups, getGroup, disbandGroup, removeMember, removeManager, detachChildGroup };
 
-export async function getGroup(groupName: string): Promise<GroupDetail> {
-  const response = await apiClient.get<GroupDetail>(
-    `/api/groups/${encodeURIComponent(groupName)}`,
-  );
-  return response.data;
-}
+export const addMember = (groupName: string, username: string) =>
+  _addMember(groupName, { username });
 
-export async function addMember(
-  groupName: string,
-  username: string,
-): Promise<MutationSuccess> {
-  const response = await apiClient.post<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/members`,
-    { username },
-  );
-  return response.data;
-}
+export const addManager = (groupName: string, username: string) =>
+  _addManager(groupName, { username });
 
-export async function removeMember(
-  groupName: string,
-  username: string,
-): Promise<MutationSuccess> {
-  const response = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(username)}`,
-  );
-  return response.data;
-}
+export const resignLeader = (groupName: string, successorUsername: string) =>
+  _resignLeader(groupName, { username: successorUsername });
 
-export async function addManager(
-  groupName: string,
-  username: string,
-): Promise<MutationSuccess> {
-  const response = await apiClient.post<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/managers`,
-    { username },
-  );
-  return response.data;
-}
+export const createSubgroup = (groupName: string, name: string) =>
+  _createSubgroup(groupName, { name });
 
-export async function removeManager(
-  groupName: string,
-  username: string,
-): Promise<MutationSuccess> {
-  const response = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/managers/${encodeURIComponent(username)}`,
-  );
-  return response.data;
-}
+export const addChildGroup = (parentGroupName: string, childGroupName: string) =>
+  _addChildGroup(parentGroupName, { group_name: childGroupName });
 
-export async function createSubgroup(
-  groupName: string,
-  name: string,
-): Promise<{ name: string }> {
-  const response = await apiClient.post<{ name: string }>(
-    `/api/groups/${encodeURIComponent(groupName)}/subgroups`,
-    { name },
-  );
-  return response.data;
-}
-
-export async function addChildGroup(
-  parentGroupName: string,
-  childGroupName: string,
-): Promise<MutationSuccess> {
-  const { data } = await apiClient.post<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(parentGroupName)}/children`,
-    { group_name: childGroupName },
-  );
-  return data;
-}
-
-export async function resignLeader(
-  groupName: string,
-  successorUsername: string,
-): Promise<MutationSuccess> {
-  const { data } = await apiClient.post<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/leader/resign`,
-    { username: successorUsername },
-  );
-  return data;
-}
-
-export async function detachChildGroup(
-  parentGroupName: string,
-  childGroupName: string,
-): Promise<MutationSuccess> {
-  const { data } = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(parentGroupName)}/children/${encodeURIComponent(childGroupName)}`,
-  );
-  return data;
-}
-
-export async function disbandGroup(
-  groupName: string,
-): Promise<MutationSuccess> {
-  const { data } = await apiClient.delete<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}`,
-  );
-  return data;
-}
-
-export async function setGroupColor(
-  groupName: string,
-  color: string,
-): Promise<MutationSuccess> {
-  const { data } = await apiClient.put<MutationSuccess>(
-    `/api/groups/${encodeURIComponent(groupName)}/color`,
-    { color },
-  );
-  return data;
-}
+export const setGroupColor = (groupName: string, color: string) =>
+  _setGroupColor(groupName, { color });
