@@ -2,7 +2,7 @@
 # Dockerfile only COPYs backend/, so Docker never sees it and uses the pinned
 # git revs from Cargo.toml instead.
 [patch."https://github.com/forest-school-am/authentik_api_2026_5_2"]
-authentik_api = { path = "../../authentik_api_2026_5_2" }
+authentik_api = { path = "../authentik_api_2026_5_2" }
 
 [patch."https://github.com/forest-school-am/authentik_forest_school_attributes"]
-authentik-forest-school-attributes = { path = "../../authentik_forest_school_attributes" }
+authentik-forest-school-attributes = { path = "../authentik_forest_school_attributes" }
