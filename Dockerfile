@@ -12,17 +12,10 @@ RUN npm run build
 
 # ── Stage 2: Build backend ────────────────────────────────────────────────────
 FROM rust:1-slim-bookworm AS backend
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY backend/ ./backend/
 WORKDIR /build/backend
-# github_token secret is mounted at /run/secrets/github_token and used only
-# during this RUN step — it is never written into an image layer.
-RUN --mount=type=secret,id=github_token \
-    TOKEN=$(cat /run/secrets/github_token) \
-    && git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/" \
-    && CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release \
-    && git config --global --remove-section "url.https://x-access-token:${TOKEN}@github.com/"
+RUN cargo build --release
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM debian:bookworm-slim

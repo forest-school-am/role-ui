@@ -45,7 +45,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          secrets: |
-            github_token=${{ secrets.GH_PAT }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
