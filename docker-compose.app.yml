@@ -5,8 +5,8 @@
 services:
   app:
     build:
-      context: ..
-      dockerfile: authentik-role-UI/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         VITE_AUTHENTIK_BASE_URL: ${VITE_AUTHENTIK_BASE_URL}
         VITE_OIDC_CLIENT_ID: ${VITE_OIDC_CLIENT_ID}

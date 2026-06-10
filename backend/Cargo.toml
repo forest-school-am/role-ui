@@ -32,6 +32,6 @@ enum-map = { version = "3.0.0-beta.2" , features = ["serde"]}
 itertools = "0.14.0"
 regex = "1.12.3"
 
-authentik_api = { path = "../../authentik_api_2026_5_2" }
-authentik-forest-school-attributes = { path = "../../authentik_forest_school_attributes" }
+authentik_api = { git = "https://github.com/forest-school-am/authentik_api_2026_5_2", rev = "61267dd73615dc0aeedaf3582a069e5d119cd529" }
+authentik-forest-school-attributes = { git = "https://github.com/forest-school-am/authentik_forest_school_attributes", rev = "ff3c882e9fb57542b0dd239de42444b7f15473c0" }
 uuid = { version = "1", features = ["serde"] }
