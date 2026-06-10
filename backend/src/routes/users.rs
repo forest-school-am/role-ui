@@ -14,7 +14,6 @@ use crate::{
     AppState,
 };
 use crate::routes::api_models::{User, UserLink};
-use authentik_forest_school_attributes::UserAttributes;
 use regex::Regex;
 
 pub fn router() -> Router<AppState> {
@@ -90,13 +89,10 @@ async fn patch_my_attributes(
     _write_lock: WriteLock,
     Json(body): Json<PatchAttributesBody>,
 ) -> Result<Json<()>, AppError> {
-    let user_pk = state.authentik_state.username_to_pk(&caller.username).await?;
-    let compat = state.authentik_state.get_compat_user_by_username(&caller.username).await?;
-    let mut ua = UserAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let mut ua = caller.attrs.clone();
     ua.forest_school.get_or_insert_with(Default::default).user_defined = body.attributes;
 
-    state.authentik_client.patch_user_attributes(user_pk as i32, ua.into_raw()
+    state.authentik_client.patch_user_attributes(caller.pk as i32, ua.into_raw()
         .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;
 
     audit::log(&caller, "patch_user_attributes", "", Some(&caller.username), "ok", None);

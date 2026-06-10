@@ -60,7 +60,7 @@ impl<PP: PathParamsVariant> FromRequestParts<AppState> for GroupFromPath<PP> {
                 AppError::BadRequest(format!("missing `{}` parameter", PP::to_static_str()))
             })?;
             Ok(GroupFromPath {
-                group: state.authentik_state.get_group_by_name(&group_name).await?,
+                group: state.authentik_state.get_group_by_name(group_name).await?,
                 _p: std::marker::PhantomData,
             })
         })
@@ -189,7 +189,7 @@ impl<R: RoleCheck> FromRequestParts<AppState> for GroupAccess<R> {
                     _r: std::marker::PhantomData,
                 })
             } else {
-                Err(AppError::Forbidden(format!("Not a group member")))
+                Err(AppError::Forbidden("Not a group member".to_string()))
             }
         })
     }

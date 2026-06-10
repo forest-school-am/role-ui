@@ -36,7 +36,7 @@ async fn invalidate_on_write(
 }
 
 pub fn router(state: AppState) -> Router {
-    return Router::new()
+    Router::new()
         .nest(
             "/api",
             Router::new()
@@ -52,5 +52,5 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             auth_middleware,
         ))
-        .with_state(state);
+        .with_state(state)
 }

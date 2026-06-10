@@ -128,7 +128,6 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
 
   useEscapeKey(onClose);
 
-  const leader = detail?.members.leader[0] ?? null;
   const managers = detail?.members.manager ?? [];
   const members = detail?.members.member ?? [];
 
@@ -188,21 +187,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
 
           {detail && (
             <div className="px-4 py-3">
-              <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Leader</p>
-                {leader ? (
-                  <Link
-                    to={`/users/${leader.username}`}
-                    className="text-sm text-indigo-600 hover:underline"
-                  >
-                    {leader.name}
-                  </Link>
-                ) : (
-                  <EmptyNote>No leader</EmptyNote>
-                )}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center mt-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded bg-gray-50 p-2">
                   <p className="text-lg font-bold text-gray-900">{managers.length}</p>
                   <p className="text-xs text-gray-500">Managers</p>
@@ -232,14 +217,15 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                 ) : undefined
               }
             >
-              {leader && (
+              {detail?.members.leader.map((l) => (
                 <MemberRow
-                  member={leader}
+                  key={l.username}
+                  member={l}
                   role="leader"
                   groupName={groupName}
                   callerRole={effectiveCallerRole}
                 />
-              )}
+              ))}
               {managers.slice(0, 5).map((m) => (
                 <MemberRow
                   key={m.username}

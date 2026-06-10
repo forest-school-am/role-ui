@@ -154,9 +154,9 @@ async fn add_member(
         return Ok(Json(()));
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let upk = state.authentik_state.username_to_pk(&username).await?;
-    state.authentik_client.add_user_to_group(&gpk, upk).await?;
+    let gpk = &group.pk;
+    let upk = state.authentik_state.user_by_username(&username).await?.pk;
+    state.authentik_client.add_user_to_group(gpk, upk).await?;
 
     audit::log(&caller, "add_member", &group.name, Some(&username), "ok", None);
     Ok(Json(()))
@@ -197,20 +197,18 @@ async fn remove_member(
         (_, GroupRole::Member) => {}
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let upk = state.authentik_state.username_to_pk(&target.username).await?;
+    let gpk = &group.pk;
+    let upk = target.pk;
 
     state.authentik_client.remove_user_from_group(&gpk, upk).await?;
 
     // If the removed user was a manager, strip them from the attributes too
     if target_role == GroupRole::Manager {
-        let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-        let mut ga = GroupAttributes::from_raw(compat.attributes)
-            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let mut ga = group.attrs.clone();
         if let Some(fs) = ga.forest_school.as_mut() {
             fs.manager.retain(|u| u != &target.username);
         }
-        state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
+        state.authentik_client.patch_group_attributes(gpk, ga.into_raw()
             .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;
     }
 
@@ -238,17 +236,15 @@ async fn add_manager(
         Some(GroupRole::Member) => {}
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
+    let gpk = &group.pk;
 
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let mut ga = group.attrs.clone();
     let fs = ga.forest_school.get_or_insert_with(Default::default);
     if !fs.manager.contains(&username) {
         fs.manager.push(username.clone());
     }
 
-    state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
+    state.authentik_client.patch_group_attributes(gpk, ga.into_raw()
         .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;
 
     audit::log(&caller, "add_manager", &group.name, Some(&username), "ok", None);
@@ -271,16 +267,14 @@ async fn remove_manager(
         return Ok(Json(()));
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
+    let gpk = &group.pk;
 
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let mut ga = group.attrs.clone();
     if let Some(fs) = ga.forest_school.as_mut() {
         fs.manager.retain(|u| u != &target.username);
     }
 
-    state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
+    state.authentik_client.patch_group_attributes(gpk, ga.into_raw()
         .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;
 
     audit::log(&caller, "remove_manager", &group.name, Some(&target.username), "ok", None);
@@ -304,10 +298,10 @@ async fn create_child_group(
         ));
     }
 
-    let parent_pk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let caller_pk = state.authentik_state.username_to_pk(&caller.username).await?;
+    let parent_pk = &group.pk;
+    let caller_pk = caller.pk;
 
-    let new_group = state.authentik_client.create_group(&name, &parent_pk).await?;
+    let new_group = state.authentik_client.create_group(&name, parent_pk).await?;
 
     // Auto-assign caller as leader (§6.7)
     let mut ga = GroupAttributes::from_raw(new_group.attributes.clone())
@@ -336,13 +330,13 @@ async fn attach_child_group(
         ));
     }
 
-    let child_compat = state.authentik_state.get_compat_group_by_name(&child_name).await?;
-    let parent_pk = state.authentik_state.groupname_to_pk(&parent.name).await?;
-    let child_pk = state.authentik_state.groupname_to_pk(&child_name).await?;
+    let child = state.authentik_state.get_group_by_name(&child_name).await?;
+    let parent_pk = &parent.pk;
+    let child_pk = &child.pk;
 
-    let mut parents = child_compat.parents;
+    let mut parents = child.parent_pks.clone();
     if !parents.contains(&parent_pk) {
-        parents.push(parent_pk);
+        parents.push(parent_pk.clone());
     }
 
     state.authentik_client.patch_group_parents(&child_pk, parents).await?;
@@ -359,17 +353,12 @@ async fn detach_child_group(
     GroupFromPath { group: child, .. }: GroupFromPath<PathParamsChildGroupName>,
     _write_lock: WriteLock,
 ) -> Result<Json<()>, AppError> {
-    let parent_pk = state.authentik_state.groupname_to_pk(&parent.name).await?;
-    let child_pk = state.authentik_state.groupname_to_pk(&child.name).await?;
-
-    let child_compat = state.authentik_state.get_compat_group_by_name(&child.name).await?;
-    let parents: Vec<String> = child_compat
-        .parents
-        .into_iter()
-        .filter(|p| p != &parent_pk)
+    let parents: Vec<String> = child.parent_pks.iter()
+        .filter(|p| *p != &parent.pk)
+        .cloned()
         .collect();
 
-    state.authentik_client.patch_group_parents(&child_pk, parents).await?;
+    state.authentik_client.patch_group_parents(&child.pk, parents).await?;
 
     audit::log(&caller, "detach_child_group", &parent.name, None, "ok", Some(&child.name));
     Ok(Json(()))
@@ -387,7 +376,7 @@ async fn disband_group(
         ));
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
+    let gpk = &group.pk;
     state.authentik_client.delete_group(&gpk).await?;
 
     audit::log(&caller, "disband_group", &group.name, None, "ok", None);
@@ -408,10 +397,8 @@ async fn add_leader(
         _ => {}
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let gpk = &group.pk;
+    let mut ga = group.attrs.clone();
     let fs = ga.forest_school.get_or_insert_with(Default::default);
     if !fs.leaders.contains(&username) {
         fs.leaders.push(username.clone());
@@ -439,10 +426,8 @@ async fn remove_leader(
         return Ok(Json(())); // idempotent
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let gpk = &group.pk;
+    let mut ga = group.attrs.clone();
     if let Some(fs) = ga.forest_school.as_mut() {
         fs.leaders.retain(|u| u != &target.username);
     }
@@ -471,10 +456,8 @@ async fn resign_leader(
         ));
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let gpk = &group.pk;
+    let mut ga = group.attrs.clone();
     let fs = ga.forest_school.get_or_insert_with(Default::default);
     fs.leaders = vec![successor_username.clone()];
     fs.manager.retain(|u| u != &successor_username);
@@ -500,10 +483,8 @@ async fn set_group_color(
     _write_lock: WriteLock,
     Json(SetColorBody { color }): Json<SetColorBody>,
 ) -> Result<Json<()>, AppError> {
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let gpk = &group.pk;
+    let mut ga = group.attrs.clone();
     ga.forest_school.get_or_insert_with(Default::default).color = Some(color.clone());
 
     state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
@@ -572,10 +553,8 @@ async fn set_google_sync(
         }
     }
 
-    let gpk = state.authentik_state.groupname_to_pk(&group.name).await?;
-    let compat = state.authentik_state.get_compat_group_by_name(&group.name).await?;
-    let mut ga = GroupAttributes::from_raw(compat.attributes)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let gpk = &group.pk;
+    let mut ga = group.attrs.clone();
     let gs = ga.forest_school
         .get_or_insert_with(Default::default)
         .google_sync

@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
     let state_wrapper_copy = state_wrapper.clone();
 
     tokio::spawn(async move {
-        while let Some(_) = rx.recv().await {
+        while rx.recv().await.is_some() {
             tracing::info!("Updating database");
             state_wrapper_copy.update(&client_copy).await.unwrap_or_else(|e| tracing::error!("{}", e));
         }

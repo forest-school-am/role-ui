@@ -134,7 +134,7 @@ impl AuthentikClient {
         let lookup_url = format!("{}/api/v3/core/users/?uuid={sub}&page_size=1", base);
         let lookup_resp = reqwest::Client::new()
             .get(&lookup_url)
-            .bearer_auth(&self.config.bearer_access_token.clone().unwrap_or_default())
+            .bearer_auth(self.config.bearer_access_token.clone().unwrap_or_default())
             .send()
             .await
             .map_err(|e| {

@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
 use enum_map::{EnumMap,Enum};
 use regex::Regex;
+use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
+    #[serde(skip)]
+    pub pk: i64,
+    #[serde(skip)]
+    pub attrs: UserAttributes,
     pub username: String,
     pub name: String,
     pub is_active: bool,
@@ -35,8 +40,14 @@ pub struct GoogleSyncConfig {
     pub direct_name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Group {
+    #[serde(skip)]
+    pub pk: String,
+    #[serde(skip)]
+    pub attrs: GroupAttributes,
+    #[serde(skip)]
+    pub parent_pks: Vec<String>,
     pub name: String,
     pub members: RoleSplit<UserLink>,
     pub children: Vec<GroupLink>,
@@ -107,6 +118,9 @@ mod test {
     #[test]
     fn test_serialization() {
         let g = Group {
+            pk: Default::default(),
+            attrs: Default::default(),
+            parent_pks: Default::default(),
             name: "G3".to_string(),
             members: RoleSplit(enum_map! {
                 GroupRole::Leader => vec![

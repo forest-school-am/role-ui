@@ -1,6 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use std::ops::{Index, IndexMut};
 use std::sync::RwLock;
 use anyhow::anyhow;
 use enum_map::{Enum};
@@ -8,11 +6,10 @@ use itertools::Itertools;
 use regex::Regex;
 use tokio::sync::watch;
 use crate::routes::api_models::{Group, GroupLink, GroupRole, RoleSplit, User, UserLink};
-use crate::authentik::{AuthentikClient, AuthentikGroup, AuthentikUser};
+use crate::authentik::{AuthentikClient, AuthentikGroup};
 use crate::routes::api_models::GoogleSyncConfig;
 use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
 use crate::error::AppError;
-use tracing;
 
 fn is_authentik_group(group: &AuthentikGroup) -> bool {
     group.name.starts_with("authentik") || group.is_superuser
@@ -78,7 +75,7 @@ impl AuthentikStateWrapper {
     pub async fn search_users_to_links(&self, re: &Regex) -> Vec<UserLink> {
         self.state.read().unwrap().users.iter()
             .filter(|u| u.matches(re))
-            .map(|u| UserLink::from(u))
+            .map(UserLink::from)
             .collect_vec()
     }
 
@@ -109,53 +106,17 @@ impl AuthentikStateWrapper {
 
     pub async fn user_group_role_relation(&self, groupname: &GroupIdType, username: &UserIdType) -> Result<Option<GroupRole>, AppError> {
         let lock = self.state.read().unwrap();
-        let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
+        let idx = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
         let map = lock.group_users
-            .get(ptr.idx)
+            .get(*idx)
             .ok_or_else(|| {
-                let err = anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, ptr.idx);
+                let err = anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, idx);
                 tracing::error!("{err:#}");
-                AppError::Internal(err.into())
+                AppError::Internal(err)
             })?;
         Ok(map.get(username).cloned())
     }
 
-    pub async fn username_to_pk(&self, username: &UserIdType) -> Result<UserPkType, AppError> {
-        let lock = self.state.read().unwrap();
-        let ptr = lock.user_id_to_user_ptr.get(username).ok_or(AppError::NotFound(format!("User `{}` not found", username)))?;
-        Ok(lock.compat_users.get(ptr.idx).ok_or_else(|| {
-            let err = anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", username, ptr.idx);
-            tracing::error!("{err:#}");
-            AppError::Internal(err.into())
-        })?.pk)
-    }
-
-    pub async fn groupname_to_pk(&self, groupname: &GroupIdType) -> Result<GroupPkType, AppError> {
-        let lock = self.state.read().unwrap();
-        let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
-        Ok(lock.compat_groups.get(ptr.idx).ok_or_else(|| {
-            let err = anyhow!("State invariant failed: compat_group for groupname `{}` at idx `{}`", groupname, ptr.idx);
-            tracing::error!("{err:#}");
-            AppError::Internal(err.into())
-        })?.pk.clone())
-    }
-
-    pub async fn user_by_pk(&self, pk: UserPkType) -> Result<User, AppError> {
-        let lock = self.state.read().unwrap();
-        let ptr = lock.pk_to_user_ptr.get(&pk).copied()
-            .ok_or(AppError::NotFound(format!("User with pk `{}` not found", pk)))?;
-        Ok(lock.index(ptr.frontend()).clone())
-    }
-
-    pub async fn get_compat_group_by_name(&self, groupname: &GroupIdType) -> Result<AuthentikGroup, AppError> {
-        let lock = self.state.read().unwrap();
-        Ok(lock.group_id_to_authentik_group(groupname)?.clone())
-    }
-
-    pub async fn get_compat_user_by_username(&self, username: &UserIdType) -> Result<AuthentikUser, AppError> {
-        let lock = self.state.read().unwrap();
-        Ok(lock.user_id_to_authentik_user(username)?.clone())
-    }
 }
 
 async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<AuthentikState, AppError> {
@@ -165,19 +126,12 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
         .filter(|g| !is_authentik_group(g))
         .collect_vec();
 
-    let pk_to_user_ptr = HashMap::from_iter(authentik_users.iter()
-        .enumerate()
-        .map(|(idx, user)| (user.pk, UserPtr { idx })));
-    let pk_to_group_ptr = HashMap::from_iter(authentik_groups.iter()
-        .enumerate()
-        .map(|(idx, group)| (group.pk.clone(), GroupPtr { idx })));
-
     let user_id_to_user_ptr = HashMap::from_iter(authentik_users.iter()
         .enumerate()
-        .map(|(idx, user)| (user.username.clone(), UserPtr { idx })));
+        .map(|(idx, user)| (user.username.clone(), idx)));
     let group_id_to_group_ptr = HashMap::from_iter(authentik_groups.iter()
         .enumerate()
-        .map(|(idx, group)| (group.name.clone(), GroupPtr { idx })));
+        .map(|(idx, group)| (group.name.clone(), idx)));
 
 
     let user_links: HashMap<UserPkType, UserLink> = HashMap::from_iter(authentik_users.iter()
@@ -246,7 +200,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
             let members = members.iter()
                 .filter_map(|pk| {
                     if !user_memberships.contains_key(pk) {
-                        user_memberships.insert(pk.clone(), RoleSplit::default());
+                        user_memberships.insert(*pk, RoleSplit::default());
                     }
                     user_memberships
                         .get_mut(pk)
@@ -289,6 +243,9 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                 });
 
             Group {
+                pk: group.pk.clone(),
+                attrs: ga,
+                parent_pks: group.parents.clone(),
                 name: group.name.clone(),
                 members: {
                     let mut rs = RoleSplit::default();
@@ -345,6 +302,8 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
             let groups = user_memberships.remove(&user.pk).unwrap_or_default();
 
             User {
+                pk: user.pk,
+                attrs: ua,
                 username: user.username.clone(),
                 name: user.name.clone(),
                 is_active: user.is_active,
@@ -371,13 +330,9 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
     Ok(AuthentikState {
         groups,
         users,
-        pk_to_user_ptr,
-        pk_to_group_ptr,
         user_id_to_user_ptr,
         group_id_to_group_ptr,
         group_users,
-        compat_groups: authentik_groups,
-        compat_users: authentik_users,
     })
 }
 
@@ -385,49 +340,25 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
 /// Contract:
 /// for <group> it's useful representation is located at index `idx` in `<groups>`
 /// in `pk_to_<group>_ptr` there is a link from actual `pk` to `<Group>Ptr` holding same `idx`
-/// in `group_id_to_<group>_ptr` there is a link from <group> id type (currently string) to `<Group>Ptr>` holding same `idx`
-/// in `compat_<group>` the original authentik representation is stored at the same index
-///
 #[derive(Default)]
 struct AuthentikState {
     groups: Vec<Group>,
     group_users: Vec<HashMap<UserIdType, GroupRole>>,
     users: Vec<User>,
-
-    pk_to_user_ptr: HashMap<UserPkType, UserPtr>,
-    pk_to_group_ptr: HashMap<GroupPkType, GroupPtr>,
-    user_id_to_user_ptr: HashMap<UserIdType, UserPtr>,
-    group_id_to_group_ptr: HashMap<GroupIdType, GroupPtr>,
-    compat_groups: Vec<AuthentikGroup>,
-    compat_users: Vec<AuthentikUser>,
+    user_id_to_user_ptr: HashMap<UserIdType, usize>,
+    group_id_to_group_ptr: HashMap<GroupIdType, usize>,
 }
 
-/// Util
 impl AuthentikState {
-    fn pk_to_group(&self, pk: &GroupPkType) -> Result<&Group, AppError> {
-        Ok(self.index(self.pk_to_group_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by pk: `{}`", pk)))?.frontend()))
+    fn group_id_to_group(&self, id: &GroupIdType) -> Result<&Group, AppError> {
+        let idx = self.group_id_to_group_ptr.get(id)
+            .ok_or_else(|| AppError::NotFound(format!("Group `{}` not found", id)))?;
+        Ok(&self.groups[*idx])
     }
-    fn pk_to_authentik_group(&self, pk: &GroupPkType) -> Result<&AuthentikGroup, AppError> {
-        Ok(self.index(self.pk_to_group_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by pk: `{}`", pk)))?.authentik()))
-    }
-    fn pk_to_user(&self, pk: &UserPkType) -> Result<&User, AppError> {
-        Ok(self.index(self.pk_to_user_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find user by pk: `{}`", pk)))?.frontend()))
-    }
-    fn pk_to_authentik_user(&self, pk: &UserPkType) -> Result<&AuthentikUser, AppError> {
-        Ok(self.index(self.pk_to_user_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find user by pk: `{}`", pk)))?.authentik()))
-    }
-
-    fn group_id_to_group(&self, pk: &GroupIdType) -> Result<&Group, AppError> {
-        Ok(self.index(self.group_id_to_group_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by group_id: `{}`", pk)))?.frontend()))
-    }
-    fn group_id_to_authentik_group(&self, pk: &GroupIdType) -> Result<&AuthentikGroup, AppError> {
-        Ok(self.index(self.group_id_to_group_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by group_id: `{}`", pk)))?.authentik()))
-    }
-    fn user_id_to_user(&self, pk: &UserIdType) -> Result<&User, AppError> {
-        Ok(self.index(self.user_id_to_user_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by user_id: `{}`", pk)))?.frontend()))
-    }
-    fn user_id_to_authentik_user(&self, pk: &UserIdType) -> Result<&AuthentikUser, AppError> {
-        Ok(self.index(self.user_id_to_user_ptr.get(pk).ok_or(AppError::NotFound(format!("Could not find group by user_id: `{}`", pk)))?.authentik()))
+    fn user_id_to_user(&self, id: &UserIdType) -> Result<&User, AppError> {
+        let idx = self.user_id_to_user_ptr.get(id)
+            .ok_or_else(|| AppError::NotFound(format!("User `{}` not found", id)))?;
+        Ok(&self.users[*idx])
     }
 }
 
@@ -435,118 +366,3 @@ type UserPkType = i64;
 type GroupPkType = String;
 pub type UserIdType = String;
 pub type GroupIdType = String;
-
-trait CompatType {}
-struct Authentik {}
-struct Frontend {}
-impl CompatType for Authentik {}
-impl CompatType for Frontend {}
-
-trait IndexType {}
-
-struct TypedGroupPtr<T: CompatType> {
-    _p: PhantomData<T>
-}
-struct TypedUserPtr<T: CompatType> {
-    _p: PhantomData<T>
-}
-impl<T: CompatType> IndexType for TypedGroupPtr<T> {}
-impl<T: CompatType> IndexType for TypedUserPtr<T> {}
-
-struct TypedPtr<T: IndexType> {
-    idx: usize,
-    _p: PhantomData<T>
-}
-
-#[derive(Copy, Clone)]
-struct UserPtr {
-    idx: usize,
-}
-#[derive(Copy, Clone)]
-struct GroupPtr {
-    idx: usize,
-}
-impl UserPtr {
-    fn authentik(self) -> TypedPtr<TypedUserPtr<Authentik>> {
-        TypedPtr {
-            idx: self.idx,
-            _p: PhantomData::default(),
-        }
-    }
-    fn frontend(self) -> TypedPtr<TypedUserPtr<Frontend>> {
-        TypedPtr {
-            idx: self.idx,
-            _p: PhantomData::default(),
-        }
-    }
-}
-impl GroupPtr {
-    fn authentik(self) -> TypedPtr<TypedGroupPtr<Authentik>> {
-        TypedPtr {
-            idx: self.idx,
-            _p: PhantomData::default(),
-        }
-    }
-    fn frontend(self) -> TypedPtr<TypedGroupPtr<Frontend>> {
-        TypedPtr {
-            idx: self.idx,
-            _p: PhantomData::default(),
-        }
-    }
-}
-
-impl Index<TypedPtr<TypedGroupPtr<Frontend>>> for AuthentikState {
-    type Output = Group;
-
-    fn index(&self, index: TypedPtr<TypedGroupPtr<Frontend>>) -> &Self::Output {
-        self.groups.index(index.idx)
-    }
-}
-
-impl IndexMut<TypedPtr<TypedGroupPtr<Frontend>>> for AuthentikState {
-    fn index_mut(&mut self, index: TypedPtr<TypedGroupPtr<Frontend>>) -> &mut <Self as Index<TypedPtr<TypedGroupPtr<Frontend>>>>::Output {
-        self.groups.index_mut(index.idx)
-    }
-}
-
-impl Index<TypedPtr<TypedUserPtr<Frontend>>> for AuthentikState {
-    type Output = User;
-
-    fn index(&self, index: TypedPtr<TypedUserPtr<Frontend>>) -> &Self::Output {
-        self.users.index(index.idx)
-    }
-}
-
-impl IndexMut<TypedPtr<TypedUserPtr<Frontend>>> for AuthentikState {
-    fn index_mut(&mut self, index: TypedPtr<TypedUserPtr<Frontend>>) -> &mut <Self as Index<TypedPtr<TypedUserPtr<Frontend>>>>::Output {
-        self.users.index_mut(index.idx)
-    }
-}
-
-impl Index<TypedPtr<TypedGroupPtr<Authentik>>> for AuthentikState {
-    type Output = AuthentikGroup;
-
-    fn index(&self, index: TypedPtr<TypedGroupPtr<Authentik>>) -> &Self::Output {
-        self.compat_groups.index(index.idx)
-    }
-}
-
-impl IndexMut<TypedPtr<TypedGroupPtr<Authentik>>> for AuthentikState {
-    fn index_mut(&mut self, index: TypedPtr<TypedGroupPtr<Authentik>>) -> &mut <Self as Index<TypedPtr<TypedGroupPtr<Authentik>>>>::Output {
-        self.compat_groups.index_mut(index.idx)
-    }
-}
-
-impl Index<TypedPtr<TypedUserPtr<Authentik>>> for AuthentikState {
-    type Output = AuthentikUser;
-
-    fn index(&self, index: TypedPtr<TypedUserPtr<Authentik>>) -> &Self::Output {
-        self.compat_users.index(index.idx)
-    }
-}
-
-impl IndexMut<TypedPtr<TypedUserPtr<Authentik>>> for AuthentikState {
-    fn index_mut(&mut self, index: TypedPtr<TypedUserPtr<Authentik>>) -> &mut <Self as Index<TypedPtr<TypedUserPtr<Authentik>>>>::Output {
-        self.compat_users.index_mut(index.idx)
-    }
-}

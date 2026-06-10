@@ -1,0 +1,22 @@
+# Runs only the application against an existing authentik instance.
+# Copy app.env.example to .env and fill in the values, then:
+#   docker compose -f docker-compose.app.yml up --build
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: authentik-role-UI/Dockerfile
+      args:
+        VITE_AUTHENTIK_BASE_URL: ${VITE_AUTHENTIK_BASE_URL}
+        VITE_OIDC_CLIENT_ID: ${VITE_OIDC_CLIENT_ID}
+        VITE_OIDC_REDIRECT_URI: ${VITE_OIDC_REDIRECT_URI}
+        VITE_OIDC_SLUG: ${VITE_OIDC_SLUG:-roleui}
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      AUTHENTIK_BASE_URL: ${AUTHENTIK_BASE_URL}
+      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN}
+      AUDIT_LOG_PATH: ${AUDIT_LOG_PATH:-/app/audit.log}
+    restart: unless-stopped
