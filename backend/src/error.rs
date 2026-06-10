@@ -30,13 +30,28 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
-            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::AuthentikError(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::Unauthorized => {
+                tracing::debug!("401 unauthorized");
+                (StatusCode::UNAUTHORIZED, "unauthorized".to_string())
+            }
+            AppError::Forbidden(msg) => {
+                tracing::debug!(msg, "403 forbidden");
+                (StatusCode::FORBIDDEN, msg.clone())
+            }
+            AppError::NotFound(msg) => {
+                tracing::debug!(msg, "404 not found");
+                (StatusCode::NOT_FOUND, msg.clone())
+            }
+            AppError::BadRequest(msg) => {
+                tracing::warn!(msg, "400 bad request");
+                (StatusCode::BAD_REQUEST, msg.clone())
+            }
+            AppError::AuthentikError(msg) => {
+                tracing::error!(msg, "502 authentik error");
+                (StatusCode::BAD_GATEWAY, msg.clone())
+            }
             AppError::Internal(err) => {
-                tracing::error!("internal error: {err:#}");
+                tracing::error!("500 internal error: {err:#}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal server error".to_string(),

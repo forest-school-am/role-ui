@@ -29,6 +29,7 @@ up:
     cd frontend && npx vite build --watch >> /tmp/frontend.log 2>&1 &
     FRONTEND_PID=$!
 
+    RUST_LOG="server=debug,tower_http=debug" \
     AUTHENTIK_BASE_URL="http://localhost:9000" \
     AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" \
     BACKEND_PORT="${BACKEND_PORT}" \

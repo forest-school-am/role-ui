@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useLayoutEffect, useMemo, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -11,7 +11,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { GroupDetail, GroupNodeData } from "../../types";
-import GroupNode, { type GroupNodeType } from "./GroupNode";
+import GroupNode, { type GroupNodeType } from "../group/GroupNode";
+import GroupNodeContent from "../group/GroupNodeContent";
 
 interface DAGCanvasProps {
   groups: GroupDetail[];
@@ -39,6 +40,60 @@ function FocusController({ focusNodeId, onFocusConsumed }: FocusControllerProps)
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Off-screen measurement
+// ---------------------------------------------------------------------------
+
+interface MeasureNodesProps {
+  groups: GroupDetail[];
+  onMeasured: (heights: Map<string, number>) => void;
+}
+
+function MeasureNodes({ groups, onMeasured }: MeasureNodesProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Keep a stable ref to the callback so the effect dep array stays clean.
+  const onMeasuredRef = useRef(onMeasured);
+  onMeasuredRef.current = onMeasured;
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const heights = new Map<string, number>();
+    for (const child of container.children) {
+      const name = (child as HTMLElement).dataset.name;
+      if (name) heights.set(name, child.getBoundingClientRect().height);
+    }
+    onMeasuredRef.current(heights);
+  }, [groups]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: "absolute",
+        left: "-9999px",
+        top: 0,
+        visibility: "hidden",
+        pointerEvents: "none",
+      }}
+    >
+      {groups.map((g) => (
+        <div key={g.name} data-name={g.name}>
+          <GroupNodeContent
+            groupName={g.name}
+            detail={g}
+            isVirtual={g.is_virtual}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+
 const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
 };
@@ -58,12 +113,10 @@ function computeLayout(
   groups: GroupDetail[],
   onGroupSelect: (name: string, isVirtual?: boolean) => void,
   onMemberClick: (username: string) => void,
+  heightOverrides: Map<string, number>,
 ): { nodes: GroupNodeType[]; edges: Edge[] } {
-  // Deduplicate by name
   const groupByName = new Map<string, GroupDetail>();
-  for (const g of groups) {
-    groupByName.set(g.name, g);
-  }
+  for (const g of groups) groupByName.set(g.name, g);
   const uniqueGroups = Array.from(groupByName.values());
 
   const realGroups = uniqueGroups.filter((g) => !g.is_virtual);
@@ -71,7 +124,6 @@ function computeLayout(
 
   const allRealNames = new Set(realGroups.map((g) => g.name));
 
-  // Build children map: parent name -> child names
   const childrenOf = new Map<string, string[]>();
   for (const g of realGroups) {
     for (const parent of g.parents) {
@@ -82,14 +134,11 @@ function computeLayout(
     }
   }
 
-  // Column assignment via topological relaxation
   const columnOf = new Map<string, number>();
 
   for (const g of realGroups) {
     const relevantParents = g.parents.filter((p) => allRealNames.has(p.name));
-    if (relevantParents.length === 0) {
-      columnOf.set(g.name, 0);
-    }
+    if (relevantParents.length === 0) columnOf.set(g.name, 0);
   }
 
   let changed = true;
@@ -121,17 +170,20 @@ function computeLayout(
   }
 
   function nodeHeight(name: string): number {
+    const measured = heightOverrides.get(name);
+    if (measured !== undefined) return measured;
+    // Fallback for virtual groups or any name not in the override map.
     const detail = groupByName.get(name);
     if (!detail) return NODE_HEADER_HEIGHT + NODE_FOOTER_PAD;
     const memberCount =
       detail.members.leader.length +
       detail.members.manager.length +
       detail.members.member.length;
-    const memberSection = Math.min(
-      memberCount * NODE_MEMBER_ROW_HEIGHT,
-      NODE_MEMBER_MAX_HEIGHT,
+    return (
+      NODE_HEADER_HEIGHT +
+      Math.min(memberCount * NODE_MEMBER_ROW_HEIGHT, NODE_MEMBER_MAX_HEIGHT) +
+      NODE_FOOTER_PAD
     );
-    return NODE_HEADER_HEIGHT + memberSection + NODE_FOOTER_PAD;
   }
 
   function packColumn(
@@ -152,9 +204,7 @@ function computeLayout(
         if (next !== undefined) {
           const nextIdealTop = desiredYCenters?.get(next);
           if (nextIdealTop !== undefined) {
-            if (nextIdealTop >= idealTop + h + NODE_GAP) {
-              tops[i] = idealTop;
-            }
+            if (nextIdealTop >= idealTop + h + NODE_GAP) tops[i] = idealTop;
           } else {
             tops[i] = idealTop;
           }
@@ -162,15 +212,12 @@ function computeLayout(
           tops[i] = idealTop;
         }
       }
-      if (tops[i] === undefined) {
-        tops[i] = currentBottom;
-      }
+      if (tops[i] === undefined) tops[i] = currentBottom;
       currentBottom = tops[i] + h + NODE_GAP;
     }
     const yCenter = new Map<string, number>();
     for (let i = 0; i < n; i++) {
-      const name = orderedNames[i];
-      yCenter.set(name, tops[i] + nodeHeight(name) / 2);
+      yCenter.set(orderedNames[i], tops[i] + nodeHeight(orderedNames[i]) / 2);
     }
     return yCenter;
   }
@@ -218,9 +265,7 @@ function computeLayout(
     const yCenters = new Map<string, number>();
     for (const names of columnOrder.values()) {
       const packed = packColumn(names);
-      for (const [name, yc] of packed.entries()) {
-        yCenters.set(name, yc);
-      }
+      for (const [name, yc] of packed.entries()) yCenters.set(name, yc);
     }
 
     const sortedCols = Array.from(columnOrder.keys()).sort((a, b) => a - b);
@@ -233,14 +278,12 @@ function computeLayout(
       for (const name of names) {
         const neighbours: number[] = [];
         for (const p of parentsOf.get(name) ?? []) {
-          if (columnOf.get(p) === col - 1 && yCenters.has(p)) {
+          if (columnOf.get(p) === col - 1 && yCenters.has(p))
             neighbours.push(yCenters.get(p)!);
-          }
         }
         for (const c of childrenOf.get(name) ?? []) {
-          if (columnOf.get(c) === col + 1 && yCenters.has(c)) {
+          if (columnOf.get(c) === col + 1 && yCenters.has(c))
             neighbours.push(yCenters.get(c)!);
-          }
         }
         desiredY.set(
           name,
@@ -250,24 +293,20 @@ function computeLayout(
 
       const sorted = [...names].sort((a, b) => {
         const dy = (desiredY.get(a) ?? 0) - (desiredY.get(b) ?? 0);
-        if (dy !== 0) return dy;
-        return a.localeCompare(b);
+        return dy !== 0 ? dy : a.localeCompare(b);
       });
       columnOrder.set(col, sorted);
 
       const packed = packColumn(sorted, desiredY);
-      for (const [name, yc] of packed.entries()) {
-        yCenters.set(name, yc);
-      }
+      for (const [name, yc] of packed.entries()) yCenters.set(name, yc);
     }
 
     function computeCost(): number {
       let cost = 0;
       for (const [parentName, children] of childrenOf.entries()) {
         for (const childName of children) {
-          if (yCenters.has(parentName) && yCenters.has(childName)) {
+          if (yCenters.has(parentName) && yCenters.has(childName))
             cost += Math.abs(yCenters.get(parentName)! - yCenters.get(childName)!);
-          }
         }
       }
       return cost;
@@ -292,9 +331,8 @@ function computeLayout(
       }
       if (connectedInCol.length > 0) bottomY += NODE_GAP;
 
-      const sortedIsolated = [...inames].sort((a, b) => a.localeCompare(b));
       let y = bottomY;
-      for (const name of sortedIsolated) {
+      for (const name of [...inames].sort((a, b) => a.localeCompare(b))) {
         const h = nodeHeight(name);
         yCenters.set(name, y + h / 2);
         y += h + NODE_GAP;
@@ -361,8 +399,7 @@ function computeLayout(
   for (const g of realGroups) {
     for (const parent of g.parents) {
       if (allRealNames.has(parent.name)) {
-        const sourceGroup = groupByName.get(parent.name);
-        const sourceColor = sourceGroup?.color ?? "#94a3b8";
+        const sourceColor = groupByName.get(parent.name)?.color ?? "#94a3b8";
         edges.push({
           id: `${parent.name}->${g.name}`,
           source: parent.name,
@@ -377,6 +414,10 @@ function computeLayout(
   return { nodes, edges };
 }
 
+// ---------------------------------------------------------------------------
+// Canvas
+// ---------------------------------------------------------------------------
+
 const DAGCanvas: React.FC<DAGCanvasProps> = ({
   groups,
   onGroupSelect,
@@ -384,29 +425,46 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
   focusNodeId,
   onFocusConsumed,
 }) => {
+  const [measuredHeights, setMeasuredHeights] = useState<Map<string, number> | null>(null);
+
+  // Deduplicate so MeasureNodes renders each group exactly once.
+  const uniqueGroups = useMemo(() => {
+    const map = new Map<string, GroupDetail>();
+    for (const g of groups) map.set(g.name, g);
+    return Array.from(map.values());
+  }, [groups]);
+
   const { nodes, edges } = useMemo(
-    () => computeLayout(groups, onGroupSelect, onMemberClick),
-    [groups, onGroupSelect, onMemberClick],
+    () =>
+      measuredHeights
+        ? computeLayout(groups, onGroupSelect, onMemberClick, measuredHeights)
+        : { nodes: [], edges: [] },
+    [groups, onGroupSelect, onMemberClick, measuredHeights],
   );
 
   return (
     <div style={{ width: "100%", height: "100%" }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        attributionPosition="bottom-right"
-      >
-        <FocusController
-          focusNodeId={focusNodeId ?? null}
-          onFocusConsumed={onFocusConsumed}
-        />
-        <Background />
-        <Controls />
-        <MiniMap />
-      </ReactFlow>
+      {/* Always mounted so useLayoutEffect re-fires whenever groups change. */}
+      <MeasureNodes groups={uniqueGroups} onMeasured={setMeasuredHeights} />
+
+      {measuredHeights && (
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          attributionPosition="bottom-right"
+        >
+          <FocusController
+            focusNodeId={focusNodeId ?? null}
+            onFocusConsumed={onFocusConsumed}
+          />
+          <Background />
+          <Controls />
+          <MiniMap />
+        </ReactFlow>
+      )}
     </div>
   );
 };

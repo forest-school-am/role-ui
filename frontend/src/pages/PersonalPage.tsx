@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMe, getUser } from '../api/users';
-import UserCard from '../components/UserCard';
+import UserPage from '../components/user/UserPage';
 import PageLoadingSkeleton from '../components/ui/PageLoadingSkeleton';
 import PageErrorCard from '../components/ui/PageErrorCard';
 
@@ -44,7 +44,7 @@ const PersonalPage: React.FC = () => {
 
   return (
     <div className="flex justify-center p-8">
-      <UserCard user={user} />
+      <UserPage user={user} isMe={!username} />
     </div>
   );
 };

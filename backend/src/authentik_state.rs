@@ -2,16 +2,17 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 use anyhow::anyhow;
-use enum_map::{Enum, EnumMap};
+use enum_map::{Enum};
 use itertools::Itertools;
 use regex::Regex;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 use crate::routes::api_models::{Group, GroupLink, GroupRole, RoleSplit, User, UserLink};
-use crate::authentik::{get_forest_school_custom_attributes, resolve_role, AuthentikClient, AuthentikGroup, AuthentikUser};
+use crate::authentik::{AuthentikClient, AuthentikGroup, AuthentikUser};
+use crate::routes::api_models::GoogleSyncConfig;
+use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
 use crate::error::AppError;
+use tracing;
 
 fn is_authentik_group(group: &AuthentikGroup) -> bool {
     group.name.starts_with("authentik") || group.is_superuser
@@ -19,61 +20,62 @@ fn is_authentik_group(group: &AuthentikGroup) -> bool {
 
 pub struct AuthentikStateWrapper {
     state: RwLock<AuthentikState>,
-    version_tx: watch::Sender<u64>,
-    dirty: AtomicBool,
+    // true = refresh in progress; read requests block until false.
+    // Written true by invalidate(), false by update() after the refresh completes.
+    dirty_tx: watch::Sender<bool>,
 }
 
 impl AuthentikStateWrapper {
     pub fn new() -> Self {
-        let (version_tx, _) = watch::channel(0u64);
+        let (dirty_tx, _) = watch::channel(false);
         Self {
             state: RwLock::new(Default::default()),
-            version_tx,
-            dirty: AtomicBool::new(false),
+            dirty_tx,
         }
     }
 
     pub async fn update(&self, authentik_client: &AuthentikClient) -> Result<(), AppError> {
+        tracing::debug!("cache refresh started");
         let new_state = update_authentik_state(authentik_client).await?;
         {
             let mut lock = self.state.write().unwrap();
             *lock = new_state;
         }
-        let v = *self.version_tx.borrow();
-        let _ = self.version_tx.send(v + 1);
-        self.dirty.store(false, Ordering::Release);
+        self.dirty_tx.send_replace(false);
+        tracing::debug!("cache refresh complete");
         Ok(())
     }
 
-    /// Marks the cache stale, triggers an immediate refresh, and waits for it to complete.
-    /// Call this after every mutation so the response reflects the new state.
-    pub async fn invalidate_and_wait(&self, tx: &mpsc::Sender<()>) -> Result<(), AppError> {
-        let before = *self.version_tx.borrow();
-        self.dirty.store(true, Ordering::Release);
-        let _ = tx.send(()).await;
-        self.version_tx
-            .subscribe()
-            .wait_for(|v| *v > before)
-            .await
-            .map_err(|_| AppError::Internal(anyhow!("cache refresh channel closed").into()))?;
-        Ok(())
+    /// Marks the cache stale. Called by WriteLock on extraction so reads block for the entire
+    /// duration of the write — not just after the response is on the wire.
+    pub fn mark_dirty(&self) {
+        self.dirty_tx.send_replace(true);
+        tracing::debug!("mark_dirty");
+    }
+
+    /// Clears the dirty flag without triggering a refresh. Called by middleware when a write
+    /// handler returns non-2xx, meaning no mutation reached authentik and the cache is still valid.
+    pub fn clear_dirty(&self) {
+        self.dirty_tx.send_replace(false);
+        tracing::debug!("clear_dirty");
     }
 
     /// Suspends the caller until any in-progress refresh completes.
-    async fn wait_if_dirty(&self) {
-        if self.dirty.load(Ordering::Acquire) {
-            let before = *self.version_tx.borrow();
-            let _ = self.version_tx.subscribe().wait_for(|v| *v > before).await;
+    /// Called by the FreshCache extractor; not meant to be used directly inside state methods.
+    pub async fn ensure_fresh(&self) {
+        let dirty = *self.dirty_tx.borrow();
+        tracing::debug!(dirty, "ensure_fresh");
+        if dirty {
+            let _ = self.dirty_tx.subscribe().wait_for(|d| !d).await;
+            tracing::debug!("ensure_fresh: unblocked");
         }
     }
 
     pub async fn user_by_username(&self, username: &String) -> Result<User, AppError> {
-        self.wait_if_dirty().await;
         self.state.read().unwrap().user_id_to_user(username).cloned()
     }
 
     pub async fn search_users_to_links(&self, re: &Regex) -> Vec<UserLink> {
-        self.wait_if_dirty().await;
         self.state.read().unwrap().users.iter()
             .filter(|u| u.matches(re))
             .map(|u| UserLink::from(u))
@@ -81,45 +83,64 @@ impl AuthentikStateWrapper {
     }
 
     pub async fn list_groups(&self) -> Vec<Group> {
-        self.wait_if_dirty().await;
         self.state.read().unwrap().groups.clone()
     }
 
     pub async fn get_group_by_name(&self, groupname: &String) -> Result<Group, AppError> {
-        self.wait_if_dirty().await;
         self.state.read().unwrap().group_id_to_group(groupname).cloned()
     }
 
+    /// Returns the name of whichever group owns `name` as either `recursive_name` or
+    /// `direct_name` in its google_sync config, or `None` if the name is unclaimed.
+    pub fn google_sync_name_owner(&self, name: &str) -> Option<String> {
+        let lock = self.state.read().unwrap();
+        lock.groups.iter().find_map(|g| {
+            g.google_sync.as_ref().and_then(|gs| {
+                if gs.recursive_name.as_deref() == Some(name)
+                    || gs.direct_name.as_deref() == Some(name)
+                {
+                    Some(g.name.clone())
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     pub async fn user_group_role_relation(&self, groupname: &GroupIdType, username: &UserIdType) -> Result<Option<GroupRole>, AppError> {
-        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
         let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
         let map = lock.group_users
             .get(ptr.idx)
-            .ok_or(AppError::Internal(anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, ptr.idx).into()))?;
+            .ok_or_else(|| {
+                let err = anyhow!("State invariant failed: group_user mapping not found for group `{}` at idx `{}`", groupname, ptr.idx);
+                tracing::error!("{err:#}");
+                AppError::Internal(err.into())
+            })?;
         Ok(map.get(username).cloned())
     }
 
     pub async fn username_to_pk(&self, username: &UserIdType) -> Result<UserPkType, AppError> {
-        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
         let ptr = lock.user_id_to_user_ptr.get(username).ok_or(AppError::NotFound(format!("User `{}` not found", username)))?;
-        Ok(lock.compat_users.get(ptr.idx).ok_or(
-            AppError::Internal(anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", username, ptr.idx).into())
-        )?.pk)
+        Ok(lock.compat_users.get(ptr.idx).ok_or_else(|| {
+            let err = anyhow!("State invariant failed: compat_user for username `{}` at idx `{}`", username, ptr.idx);
+            tracing::error!("{err:#}");
+            AppError::Internal(err.into())
+        })?.pk)
     }
 
     pub async fn groupname_to_pk(&self, groupname: &GroupIdType) -> Result<GroupPkType, AppError> {
-        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
         let ptr = lock.group_id_to_group_ptr.get(groupname).ok_or(AppError::NotFound(format!("Group `{}` not found", groupname)))?;
-        Ok(lock.compat_groups.get(ptr.idx).ok_or(
-            AppError::Internal(anyhow!("State invariant failed: compat_group for groupname `{}` at idx `{}`", groupname, ptr.idx).into())
-        )?.pk.clone())
+        Ok(lock.compat_groups.get(ptr.idx).ok_or_else(|| {
+            let err = anyhow!("State invariant failed: compat_group for groupname `{}` at idx `{}`", groupname, ptr.idx);
+            tracing::error!("{err:#}");
+            AppError::Internal(err.into())
+        })?.pk.clone())
     }
 
     pub async fn user_by_pk(&self, pk: UserPkType) -> Result<User, AppError> {
-        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
         let ptr = lock.pk_to_user_ptr.get(&pk).copied()
             .ok_or(AppError::NotFound(format!("User with pk `{}` not found", pk)))?;
@@ -127,9 +148,13 @@ impl AuthentikStateWrapper {
     }
 
     pub async fn get_compat_group_by_name(&self, groupname: &GroupIdType) -> Result<AuthentikGroup, AppError> {
-        self.wait_if_dirty().await;
         let lock = self.state.read().unwrap();
         Ok(lock.group_id_to_authentik_group(groupname)?.clone())
+    }
+
+    pub async fn get_compat_user_by_username(&self, username: &UserIdType) -> Result<AuthentikUser, AppError> {
+        let lock = self.state.read().unwrap();
+        Ok(lock.user_id_to_authentik_user(username)?.clone())
     }
 }
 
@@ -198,24 +223,20 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
         .map(|group| {
             let mut members: HashSet<i64> = group.users.iter().cloned().collect();
 
-            let leaders = get_forest_school_custom_attributes(group.attributes.as_ref())
-                .and_then(|a| a.get("leaders"))
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|entry| entry.as_str())
+            let ga = GroupAttributes::from_raw(group.attributes.clone()).unwrap_or_default();
+            let fs = ga.forest_school.as_ref();
+            let leaders = fs
+                .map(|f| {
+                    f.leaders.iter()
                         .filter_map(|username| {
                             resolve_named_role!(&group.pk, username, GroupRole::Leader.into_usize(), members)
                         })
                         .collect_vec()
                 })
                 .unwrap_or_default();
-            let managers = get_forest_school_custom_attributes(group.attributes.as_ref())
-                .and_then(|a| a.get("manager"))
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|entry| entry.as_str())
+            let managers = fs
+                .map(|f| {
+                    f.manager.iter()
                         .filter_map(|username| {
                             resolve_named_role!(&group.pk, username, GroupRole::Manager.into_usize(), members)
                         })
@@ -259,10 +280,13 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                 .collect_vec();
 
 
-            let color = get_forest_school_custom_attributes(group.attributes.as_ref())
-                .and_then(|a| a.get("color"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+            let color = fs.and_then(|f| f.color.clone());
+            let google_sync = fs
+                .and_then(|f| f.google_sync.as_ref())
+                .map(|gs| GoogleSyncConfig {
+                    recursive_name: gs.recursive_name.clone(),
+                    direct_name: gs.direct_name.clone(),
+                });
 
             Group {
                 name: group.name.clone(),
@@ -291,46 +315,30 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                 children,
                 parents,
                 color,
+                google_sync,
             }
         })
         .collect_vec();
 
     let users = authentik_users.iter()
         .map(|user| {
-            let fs = get_forest_school_custom_attributes(user.attributes.as_ref());
+            let ua = UserAttributes::from_raw(user.attributes.clone()).unwrap_or_default();
+            let fs = ua.forest_school.as_ref();
 
             let logins = fs
-                .and_then(|a| a.get("logins"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|item| {
-                            let obj = item.as_object()?;
-                            Some(crate::routes::api_models::LoginAccount {
-                                kind: obj.get("kind")?.as_str()?.to_string(),
-                                address: obj.get("address")?.as_str()?.to_string(),
-                            })
-                        })
-                        .collect_vec()
-                })
+                .map(|f| f.logins.iter().map(|l| crate::routes::api_models::LoginAccount {
+                    kind: l.kind.clone(),
+                    address: l.address.clone(),
+                }).collect_vec())
                 .unwrap_or_default();
 
             let attributes = fs
-                .and_then(|a| a.get("custom"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|item| {
-                            item.as_array()
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|kv| Some(kv.as_str()?.to_string()))
-                                        .collect_array::<2>()
-                                })
-                                .flatten()
-                        })
-                        .map_into()
-                        .collect_vec()
+                .map(|f| {
+                    let mut pairs: Vec<(String, String)> = f.user_defined.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                    pairs
                 })
                 .unwrap_or_default();
 
@@ -340,6 +348,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
                 username: user.username.clone(),
                 name: user.name.clone(),
                 is_active: user.is_active,
+                is_superuser: user.is_superuser,
                 logins,
                 groups,
                 attributes,

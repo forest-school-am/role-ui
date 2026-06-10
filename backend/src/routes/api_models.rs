@@ -7,6 +7,7 @@ pub struct User {
     pub username: String,
     pub name: String,
     pub is_active: bool,
+    pub is_superuser: bool,
     pub logins: Vec<LoginAccount>,
     pub groups: RoleSplit<GroupLink>,
     pub attributes: Vec<(String, String)>
@@ -29,12 +30,19 @@ impl From<&User> for UserLink {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoogleSyncConfig {
+    pub recursive_name: Option<String>,
+    pub direct_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Group {
     pub name: String,
     pub members: RoleSplit<UserLink>,
     pub children: Vec<GroupLink>,
     pub parents: Vec<GroupLink>,
     pub color: Option<String>,
+    pub google_sync: Option<GoogleSyncConfig>,
 }
 
 impl Group {
@@ -145,6 +153,7 @@ mod test {
                 },
             ],
             color: Some("FF0000".to_string()),
+            google_sync: None,
         };
         let g_ser = json!(g);
         println!("{}", g_ser);

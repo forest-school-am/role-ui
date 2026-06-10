@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use authentik_api::apis::configuration::Configuration;
 use authentik_api::apis::core_api;
 use authentik_api::models;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use crate::error::AppError;
-use crate::routes::api_models::{Group, GroupRole};
 
 // ---------------------------------------------------------------------------
 // Wrapper types — stable interface over the generated API models
@@ -16,6 +15,7 @@ pub struct AuthentikUser {
     pub username: String,
     pub name: String,
     pub is_active: bool,
+    pub is_superuser: bool,
     pub attributes: Option<HashMap<String, Value>>,
 }
 
@@ -36,6 +36,7 @@ impl AuthentikUser {
             username: u.username,
             name: u.name,
             is_active: u.is_active.unwrap_or(true),
+            is_superuser: u.is_superuser,
             attributes: u.attributes,
         }
     }
@@ -71,7 +72,9 @@ pub struct AuthentikClient {
 }
 
 fn map_api_err<E: std::fmt::Display>(e: E) -> AppError {
-    AppError::AuthentikError(e.to_string())
+    let msg = e.to_string();
+    tracing::error!("authentik API error: {msg}");
+    AppError::AuthentikError(msg)
 }
 
 impl AuthentikClient {
@@ -302,26 +305,20 @@ impl AuthentikClient {
             .await
             .map_err(map_api_err)
     }
-}
 
-// ---------------------------------------------------------------------------
-// Helpers used by authentik_state and route handlers
-// ---------------------------------------------------------------------------
-
-/// Returns the `forest_school` inner object from a group's or user's
-/// `attributes` map, if present.
-pub fn get_forest_school_custom_attributes(
-    attrs: Option<&HashMap<String, Value>>,
-) -> Option<&Map<String, Value>> {
-    attrs?.get("forest_school")?.as_object()
-}
-
-/// Determine a user's role in a group from the pre-built `Group` model.
-pub fn resolve_role(group: &Group, username: &str) -> Option<GroupRole> {
-    for (role, links) in group.members.0.iter() {
-        if links.iter().any(|l| l.username == username) {
-            return Some(role.clone());
-        }
+    pub async fn patch_user_attributes(
+        &self,
+        user_pk: i32,
+        attributes: HashMap<String, Value>,
+    ) -> Result<(), AppError> {
+        let req = models::PatchedUserRequest {
+            attributes: Some(attributes),
+            ..Default::default()
+        };
+        core_api::core_users_partial_update(&self.config, user_pk, Some(req))
+            .await
+            .map_err(map_api_err)?;
+        Ok(())
     }
-    None
 }
+

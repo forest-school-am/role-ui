@@ -1,7 +1,6 @@
 use axum::{
-    async_trait,
-    extract::{FromRequestParts, Request, State},
-    http::{header::HeaderMap, request::Parts},
+    extract::{Request, State},
+    http::header::HeaderMap,
     middleware::Next,
     response::Response,
 };
@@ -94,6 +93,3 @@ pub async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-// ---------------------------------------------------------------------------
-// FromRequestParts — handlers that need the caller identity use this extractor
-// ---------------------------------------------------------------------------

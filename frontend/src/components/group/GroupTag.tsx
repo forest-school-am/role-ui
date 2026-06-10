@@ -1,6 +1,6 @@
 import React from 'react';
-import type { GroupRole } from '../types';
-import CrownIcon from './CrownIcon';
+import type { GroupRole } from '../../types';
+import CrownIcon from '../CrownIcon';
 
 interface GroupTagProps {
   groupName: string;

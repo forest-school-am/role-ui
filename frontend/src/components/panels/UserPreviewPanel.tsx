@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getUser } from '../../api/users';
 import PanelLoadingSkeleton from '../ui/PanelLoadingSkeleton';
+import Section from '../ui/Section';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
-import { SECTION_LABEL_CLS } from '../../lib/ui-constants';
+
+const PANEL_SECTION_CLS = 'px-4 py-2 border-t border-gray-100';
 
 interface UserPreviewPanelProps {
   username: string;
@@ -20,7 +22,7 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
   useEscapeKey(onClose);
 
   return (
-    <div className="fixed right-0 top-0 h-full w-72 bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col">
+    <div className="fixed right-0 top-12 h-[calc(100vh-3rem)] w-72 bg-white shadow-2xl border-l border-gray-200 z-40 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-none">
         {user ? (
@@ -50,22 +52,27 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {isLoading && <PanelLoadingSkeleton />}
+      <div className="flex-1 overflow-y-auto">
+        {isLoading && (
+          <div className="px-4 py-3">
+            <PanelLoadingSkeleton />
+          </div>
+        )}
 
         {isError && (
-          <p className="text-red-500 text-sm">
+          <p className="px-4 py-3 text-red-500 text-sm">
             {error instanceof Error ? error.message : 'Failed to load user.'}
           </p>
         )}
 
         {user && (
-          <div className="space-y-4">
-            <p className="text-sm text-gray-500">@{user.username}</p>
+          <>
+            <div className="px-4 py-3">
+              <p className="text-sm text-gray-500">@{user.username}</p>
+            </div>
 
             {user.logins.length > 0 && (
-              <div>
-                <p className={`${SECTION_LABEL_CLS} mb-1`}>Contact</p>
+              <Section title="Contact" className={PANEL_SECTION_CLS}>
                 <div className="space-y-1">
                   {user.logins.slice(0, 3).map((s, i) => (
                     <p key={i} className="text-sm text-gray-700">
@@ -73,9 +80,9 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
                     </p>
                   ))}
                 </div>
-              </div>
+              </Section>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>

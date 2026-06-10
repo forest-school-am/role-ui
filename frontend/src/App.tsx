@@ -7,6 +7,7 @@ import {
 } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { useAuth } from './auth/useAuth';
+import { SuperuserProvider } from './auth/SuperuserContext';
 import OAuthCallback from './auth/OAuthCallback';
 import PersonalPage from './pages/PersonalPage';
 import StructurePage from './pages/StructurePage';
@@ -56,7 +57,9 @@ const App: React.FC = () => {
           <Route
             element={
               <ProtectedRoute>
-                <AppShell />
+                <SuperuserProvider>
+                  <AppShell />
+                </SuperuserProvider>
               </ProtectedRoute>
             }
           >

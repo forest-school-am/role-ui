@@ -33,4 +33,5 @@ itertools = "0.14.0"
 regex = "1.12.3"
 
 authentik_api = { path = "../../authentik_api_2026_5_2" }
+authentik-forest-school-attributes = { path = "../../authentik_forest_school_attributes" }
 uuid = { version = "1", features = ["serde"] }

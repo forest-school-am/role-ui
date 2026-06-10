@@ -1,34 +1,39 @@
 import React from 'react';
-import { Handle, Position } from '@xyflow/react';
-import type { Node, NodeProps } from '@xyflow/react';
-import type { GroupDetail, GroupNodeData } from '../../types';
-import GroupMemberItem from './GroupMemberItem';
+import type { GroupDetail } from '../../types';
+import UserRow from '../user/UserRow';
 
-export type GroupNodeType = Node<GroupNodeData, 'groupNode'>;
+interface GroupNodeContentProps {
+  groupName: string;
+  detail: GroupDetail | null;
+  isVirtual?: boolean;
+  onSelect?: (groupName: string, isVirtual?: boolean) => void;
+  onMemberClick?: (username: string) => void;
+}
 
-const GroupNode: React.FC<NodeProps<GroupNodeType>> = ({ data }) => {
-  const groupName = data.groupName as string;
-  const detail = data.detail as GroupDetail | null;
-  const onSelect = data.onSelect as (groupName: string, isVirtual?: boolean) => void;
-  const onMemberClick = data.onMemberClick as (username: string) => void;
-  const isVirtual = !!data.isVirtual;
-
+const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
+  groupName,
+  detail,
+  isVirtual = false,
+  onSelect,
+  onMemberClick,
+}) => {
   const headerColor = detail?.color ?? '#e2e8f0';
 
   return (
     <div
       className="rounded-lg border border-gray-300 bg-white shadow-md min-w-[200px] max-w-[260px] overflow-hidden cursor-pointer"
-      onClick={() => onSelect(groupName, isVirtual)}
+      onClick={onSelect ? () => onSelect(groupName, isVirtual) : undefined}
     >
-      <Handle type="target" position={Position.Left} />
-
       <div
         className="px-3 py-2"
         style={{
           backgroundColor: headerColor,
-          ...(isVirtual ? {
-            backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.45) 8px, rgba(255,255,255,0.45) 12px)',
-          } : {}),
+          ...(isVirtual
+            ? {
+                backgroundImage:
+                  'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.45) 8px, rgba(255,255,255,0.45) 12px)',
+              }
+            : {}),
         }}
       >
         <p className="text-sm font-semibold truncate">{groupName}</p>
@@ -46,27 +51,23 @@ const GroupNode: React.FC<NodeProps<GroupNodeType>> = ({ data }) => {
         ) : (
           <>
             {detail.members.leader.map((m) => (
-              <GroupMemberItem
+              <UserRow
                 key={m.username}
                 member={m}
                 crownVariant="gold"
-                onMemberClick={onMemberClick}
+                onUserClick={onMemberClick}
               />
             ))}
             {detail.members.manager.map((m) => (
-              <GroupMemberItem
+              <UserRow
                 key={m.username}
                 member={m}
                 crownVariant="silver"
-                onMemberClick={onMemberClick}
+                onUserClick={onMemberClick}
               />
             ))}
             {detail.members.member.map((m) => (
-              <GroupMemberItem
-                key={m.username}
-                member={m}
-                onMemberClick={onMemberClick}
-              />
+              <UserRow key={m.username} member={m} onUserClick={onMemberClick} />
             ))}
             {detail.members.leader.length === 0 &&
               detail.members.manager.length === 0 &&
@@ -76,10 +77,8 @@ const GroupNode: React.FC<NodeProps<GroupNodeType>> = ({ data }) => {
           </>
         )}
       </div>
-
-      <Handle type="source" position={Position.Right} />
     </div>
   );
 };
 
-export default GroupNode;
+export default GroupNodeContent;

@@ -1,15 +1,15 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use autentik_macros::labeled_enum;
 use axum::async_trait;
-use axum::extract::{FromRequest, FromRequestParts, Path};
+use axum::extract::{FromRequestParts, Path};
 use axum::http::request::Parts;
-use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
+use tokio::sync::OwnedMutexGuard;
 use crate::{
-    auth::AuthenticatedUser,
-    authentik::{resolve_role, AuthentikGroup, AuthentikUser},
     error::AppError,
     AppState,
 };
@@ -140,6 +140,16 @@ pub struct GroupAccess<R: RoleCheck> {
     _r: std::marker::PhantomData<R>,
 }
 
+/// Returns true when the caller is an authentik superuser AND sent `x-as-superuser: true`.
+fn is_superuser_mode(caller: &User, parts: &axum::http::request::Parts) -> bool {
+    caller.is_superuser
+        && parts
+            .headers
+            .get("x-as-superuser")
+            .and_then(|v| v.to_str().ok())
+            == Some("true")
+}
+
 // One impl covers both cases
 impl<R: RoleCheck> FromRequestParts<AppState> for GroupAccess<R> {
     type Rejection = AppError;
@@ -162,7 +172,15 @@ impl<R: RoleCheck> FromRequestParts<AppState> for GroupAccess<R> {
             let caller = User::from_request_parts(parts, state).await?;
             let GroupFromPath { group, .. } =
                 GroupFromPath::<PathParamsGroupName>::from_request_parts(parts, state).await?;
-            if let Some(role) = resolve_role(&group, &caller.username){
+            if is_superuser_mode(&caller, parts) {
+                return Ok(GroupAccess {
+                    group,
+                    caller,
+                    role: GroupRole::Leader,
+                    _r: std::marker::PhantomData,
+                });
+            }
+            if let Some(role) = state.authentik_state.user_group_role_relation(&group.name, &caller.username).await? {
                 R::check(&role)?;
                 Ok(GroupAccess {
                     group,
@@ -173,6 +191,34 @@ impl<R: RoleCheck> FromRequestParts<AppState> for GroupAccess<R> {
             } else {
                 Err(AppError::Forbidden(format!("Not a group member")))
             }
+        })
+    }
+}
+
+/// Grants access only when the caller is an authentik superuser and has sent `x-as-superuser: true`.
+/// Use this extractor on handlers that should be superuser-only regardless of group membership.
+pub struct SuperuserAccess {
+    pub caller: User,
+}
+
+impl FromRequestParts<AppState> for SuperuserAccess {
+    type Rejection = AppError;
+
+    fn from_request_parts<'life0, 'life1, 'async_trait>(
+        parts: &'life0 mut axum::http::request::Parts,
+        state: &'life1 AppState,
+    ) -> Pin<Box<dyn Future<Output = Result<Self, Self::Rejection>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let caller = User::from_request_parts(parts, state).await?;
+            if !is_superuser_mode(&caller, parts) {
+                return Err(AppError::Forbidden("superuser mode required".to_string()));
+            }
+            Ok(SuperuserAccess { caller })
         })
     }
 }
@@ -194,8 +240,41 @@ impl FromRequestParts<AppState> for User {
 }
 
 
+/// Blocks until the cache is fresh. Declare this first in any handler that reads from the cache.
+pub struct FreshCache;
+
+impl FromRequestParts<AppState> for FreshCache {
+    type Rejection = Infallible;
+
+    fn from_request_parts<'life0, 'life1, 'async_trait>(
+        _parts: &'life0 mut Parts,
+        state: &'life1 AppState,
+    ) -> Pin<Box<dyn Future<Output = Result<Self, Self::Rejection>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            state.authentik_state.ensure_fresh().await;
+            Ok(FreshCache)
+        })
+    }
+}
+
+/// Inserted into request extensions by `invalidate_on_write` middleware before the handler runs.
+/// `WriteLock` flips it to signal that a write lock was acquired.
+#[derive(Clone)]
+pub struct WriteFlag(pub Arc<AtomicBool>);
+
+/// Serialises concurrent writes and ensures reads see a consistent cache.
+///
+/// On extraction: marks the cache dirty immediately so reads block for the entire
+/// write — not just after the response is on the wire.
+/// The `invalidate_on_write` middleware then decides what to do with the dirty flag
+/// based on the response status.
 pub struct WriteLock {
-    guard: OwnedMutexGuard<()>
+    _guard: OwnedMutexGuard<()>,
 }
 
 impl FromRequestParts<AppState> for WriteLock {
@@ -208,8 +287,12 @@ impl FromRequestParts<AppState> for WriteLock {
         Self: 'async_trait
     {
         Box::pin(async move {
+            state.authentik_state.mark_dirty();
+            if let Some(WriteFlag(flag)) = parts.extensions.get::<WriteFlag>() {
+                flag.store(true, Ordering::Release);
+            }
             Ok(WriteLock {
-                guard: Arc::clone(&state.write_mutex).lock_owned().await,
+                _guard: Arc::clone(&state.write_mutex).lock_owned().await,
             })
         })
     }

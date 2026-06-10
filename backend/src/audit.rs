@@ -1,8 +1,25 @@
+use std::fs::OpenOptions;
+use std::io::{LineWriter, Write};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
 use serde::Serialize;
+
 use crate::routes::api_models::User;
-// ---------------------------------------------------------------------------
-// Audit event — written as a JSON line to stdout on every write attempt.
-// ---------------------------------------------------------------------------
+
+static WRITER: OnceLock<Mutex<LineWriter<std::fs::File>>> = OnceLock::new();
+
+/// Call once at startup before accepting requests.
+pub fn init(path: impl AsRef<Path>) -> anyhow::Result<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path.as_ref())?;
+    WRITER
+        .set(Mutex::new(LineWriter::new(file)))
+        .map_err(|_| anyhow::anyhow!("audit log already initialized"))?;
+    Ok(())
+}
 
 #[derive(Serialize)]
 struct AuditEvent<'a> {
@@ -17,11 +34,6 @@ struct AuditEvent<'a> {
     detail: Option<&'a str>,
 }
 
-/// Emit one JSON audit line to stdout.
-///
-/// `result` is one of `"ok"`, `"forbidden"`, or `"bad_request"`.
-/// `detail` carries the rejection reason on non-ok results, or extra context
-/// on success (e.g. the name of a newly created subgroup).
 pub fn log(
     caller: &User,
     action: &str,
@@ -30,6 +42,16 @@ pub fn log(
     result: &str,
     detail: Option<&str>,
 ) {
+    tracing::debug!(
+        actor = %caller.username,
+        action,
+        group_name,
+        target_username,
+        result,
+        detail,
+        "audit"
+    );
+
     let event = AuditEvent {
         timestamp: chrono::Utc::now().to_rfc3339(),
         actor_username: &caller.username,
@@ -40,6 +62,10 @@ pub fn log(
         detail,
     };
     if let Ok(json) = serde_json::to_string(&event) {
-        println!("AUDIT {json}");
+        if let Some(writer) = WRITER.get() {
+            if let Ok(mut w) = writer.lock() {
+                let _ = writeln!(w, "{json}");
+            }
+        }
     }
 }

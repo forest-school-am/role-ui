@@ -1,6 +1,7 @@
 .direnv/
 result
 result-*
+audit.log
 
 # Rust build artifacts
 backend/target/

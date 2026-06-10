@@ -4,11 +4,14 @@ const apiClient = axios.create({
   baseURL: '',
 });
 
-// Request interceptor: inject Bearer token from sessionStorage
+// Request interceptor: inject Bearer token and superuser mode header from sessionStorage
 apiClient.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('auth_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (sessionStorage.getItem('superuser_mode') === 'true') {
+    config.headers['x-as-superuser'] = 'true';
   }
   return config;
 });

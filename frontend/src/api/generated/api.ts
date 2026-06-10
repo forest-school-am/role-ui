@@ -51,6 +51,7 @@ export interface User {
   username: string;
   name: string;
   is_active: boolean;
+  is_superuser: boolean;
   logins: LoginAccount[];
   groups: UserGroupRoleSplit;
   /**
@@ -60,12 +61,20 @@ export interface User {
   attributes: [string, string][];
 }
 
+export interface GoogleSyncConfig {
+  /** @pattern ^[a-z0-9.]+$ */
+  recursive_name?: string;
+  /** @pattern ^[a-z0-9.]+$ */
+  direct_name?: string;
+}
+
 export interface Group {
   name: string;
   members: GroupRoleSplit;
   children: GroupLink[];
   parents: GroupLink[];
   color?: string;
+  google_sync?: GoogleSyncConfig;
 }
 
 export type _SearchResultUserSearchType = typeof _SearchResultUserSearchType[keyof typeof _SearchResultUserSearchType];
@@ -126,6 +135,14 @@ export type SearchUsersParams = {
 search?: string;
 };
 
+export type PatchMyAttributesBodyAttributes = {[key: string]: string};
+
+export type PatchMyAttributesBody = {
+  attributes: PatchMyAttributesBodyAttributes;
+};
+
+export type PatchMyAttributes200 = { [key: string]: unknown };
+
 export type DisbandGroup200 = { [key: string]: unknown };
 
 export type AddMemberBody = {
@@ -143,6 +160,14 @@ export type AddManagerBody = {
 export type AddManager200 = { [key: string]: unknown };
 
 export type RemoveManager200 = { [key: string]: unknown };
+
+export type AddLeaderBody = {
+  username: string;
+};
+
+export type AddLeader200 = { [key: string]: unknown };
+
+export type RemoveLeader200 = { [key: string]: unknown };
 
 export type ResignLeaderBody = {
   /** Username of the manager who will become the new leader. */
@@ -167,6 +192,15 @@ export type AddChildGroupBody = {
 export type AddChildGroup200 = { [key: string]: unknown };
 
 export type DetachChildGroup200 = { [key: string]: unknown };
+
+export type SetGoogleSyncBody = {
+  /** @pattern ^[a-z0-9.]+$ */
+  recursive_name?: string;
+  /** @pattern ^[a-z0-9.]+$ */
+  direct_name?: string;
+};
+
+export type SetGoogleSync200 = { [key: string]: unknown };
 
 export type SetGroupColorBody = {
   color: string;
@@ -208,6 +242,20 @@ const getMe = (
  ) => {
       return customMutator<User>(
       {url: `/users/me`, method: 'GET'
+    },
+      );
+    }
+
+/**
+ * @summary Replace own user-defined attributes
+ */
+const patchMyAttributes = (
+    patchMyAttributesBody: PatchMyAttributesBody,
+ ) => {
+      return customMutator<PatchMyAttributes200>(
+      {url: `/users/me/attributes`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchMyAttributesBody
     },
       );
     }
@@ -323,6 +371,36 @@ const removeManager = (
     }
 
 /**
+ * Grants the leader role to an existing group member. Requires the caller to be an authentik superuser operating in superuser mode (`x-as-superuser: true`). The user must already be a member of the group. Idempotent if already a leader. If the user was a manager, their manager role is removed.
+ * @summary Promote a member to leader (superuser only)
+ */
+const addLeader = (
+    groupName: string,
+    addLeaderBody: AddLeaderBody,
+ ) => {
+      return customMutator<AddLeader200>(
+      {url: `/groups/${groupName}/leaders`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: addLeaderBody
+    },
+      );
+    }
+
+/**
+ * Strips the leader role from a user, reverting them to a plain member. Requires the caller to be an authentik superuser operating in superuser mode (`x-as-superuser: true`). The user remains in the group. Idempotent if the user is not a leader.
+ * @summary Demote a leader to member (superuser only)
+ */
+const removeLeader = (
+    groupName: string,
+    username: string,
+ ) => {
+      return customMutator<RemoveLeader200>(
+      {url: `/groups/${groupName}/leaders/${username}`, method: 'DELETE'
+    },
+      );
+    }
+
+/**
  * Transfers leadership to a successor. The successor must be a current **manager** of the group; they are promoted to leader and removed from the managers list. Requires caller to be the current **leader**.
  * @summary Resign as leader
  */
@@ -385,6 +463,22 @@ const detachChildGroup = (
     }
 
 /**
+ * Sets `recursive_name` and/or `direct_name` for the group's Google Workspace sync configuration. Both fields are optional — omit a field to leave it unchanged. Requires caller to be the group's **leader**.
+ * @summary Set Google Workspace sync config
+ */
+const setGoogleSync = (
+    groupName: string,
+    setGoogleSyncBody: SetGoogleSyncBody,
+ ) => {
+      return customMutator<SetGoogleSync200>(
+      {url: `/groups/${groupName}/google-sync`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: setGoogleSyncBody
+    },
+      );
+    }
+
+/**
  * Updates the display color of a group. Requires caller to be **manager or leader**. Color value is a free-form string (e.g. a hex code like `"FF0000"`).
  * @summary Set group color
  */
@@ -427,9 +521,10 @@ const getSearchLinkGen = (
       );
     }
 
-return {searchUsers,getMe,getUser,getGroups,getGroup,disbandGroup,addMember,removeMember,addManager,removeManager,resignLeader,createSubgroup,addChildGroup,detachChildGroup,setGroupColor,searchAll,getSearchLinkGen}};
+return {searchUsers,getMe,patchMyAttributes,getUser,getGroups,getGroup,disbandGroup,addMember,removeMember,addManager,removeManager,addLeader,removeLeader,resignLeader,createSubgroup,addChildGroup,detachChildGroup,setGoogleSync,setGroupColor,searchAll,getSearchLinkGen}};
 export type SearchUsersResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['searchUsers']>>>
 export type GetMeResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getMe']>>>
+export type PatchMyAttributesResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['patchMyAttributes']>>>
 export type GetUserResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getUser']>>>
 export type GetGroupsResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getGroups']>>>
 export type GetGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getGroup']>>>
@@ -438,10 +533,13 @@ export type AddMemberResult = NonNullable<Awaited<ReturnType<ReturnType<typeof g
 export type RemoveMemberResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['removeMember']>>>
 export type AddManagerResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['addManager']>>>
 export type RemoveManagerResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['removeManager']>>>
+export type AddLeaderResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['addLeader']>>>
+export type RemoveLeaderResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['removeLeader']>>>
 export type ResignLeaderResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['resignLeader']>>>
 export type CreateSubgroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['createSubgroup']>>>
 export type AddChildGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['addChildGroup']>>>
 export type DetachChildGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['detachChildGroup']>>>
+export type SetGoogleSyncResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['setGoogleSync']>>>
 export type SetGroupColorResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['setGroupColor']>>>
 export type SearchAllResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['searchAll']>>>
 export type GetSearchLinkGenResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getSearchLinkGen']>>>

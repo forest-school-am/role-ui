@@ -6,6 +6,7 @@ pub struct Config {
     pub authentik_api_token: String,
     pub backend_port: u16,
     pub static_dir: std::path::PathBuf,
+    pub audit_log_path: std::path::PathBuf,
 }
 
 impl Config {
@@ -22,6 +23,9 @@ impl Config {
             static_dir: std::env::var("STATIC_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| std::path::PathBuf::from("../frontend/dist")),
+            audit_log_path: std::env::var("AUDIT_LOG_PATH")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("audit.log")),
         })
     }
 }

@@ -84,13 +84,15 @@ components:
 
     User:
       type: object
-      required: [username, name, is_active, logins, groups, attributes]
+      required: [username, name, is_active, is_superuser, logins, groups, attributes]
       properties:
         username:
           type: string
         name:
           type: string
         is_active:
+          type: boolean
+        is_superuser:
           type: boolean
         logins:
           type: array
@@ -107,6 +109,16 @@ components:
               - type: string
             minItems: 2
             maxItems: 2
+
+    GoogleSyncConfig:
+      type: object
+      properties:
+        recursive_name:
+          type: string
+          pattern: '^[a-z0-9.]+$'
+        direct_name:
+          type: string
+          pattern: '^[a-z0-9.]+$'
 
     Group:
       type: object
@@ -126,6 +138,8 @@ components:
             $ref: '#/components/schemas/GroupLink'
         color:
           type: string
+        google_sync:
+          $ref: '#/components/schemas/GoogleSyncConfig'
 
     SearchResultUser:
       type: object
@@ -252,6 +266,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/attributes:
+    patch:
+      operationId: patchMyAttributes
+      summary: Replace own user-defined attributes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attributes]
+              properties:
+                attributes:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '200':
+          description: Attributes updated.
+          content:
+            application/json:
+              schema:
+                type: object
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -462,6 +502,69 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /groups/{group_name}/leaders:
+    post:
+      operationId: addLeader
+      summary: Promote a member to leader (superuser only)
+      description: >
+        Grants the leader role to an existing group member. Requires the caller to
+        be an authentik superuser operating in superuser mode (`x-as-superuser: true`).
+        The user must already be a member of the group. Idempotent if already a leader.
+        If the user was a manager, their manager role is removed.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: Leader role granted (or user was already a leader).
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/leaders/{username}:
+    delete:
+      operationId: removeLeader
+      summary: Demote a leader to member (superuser only)
+      description: >
+        Strips the leader role from a user, reverting them to a plain member.
+        Requires the caller to be an authentik superuser operating in superuser mode
+        (`x-as-superuser: true`). The user remains in the group. Idempotent if
+        the user is not a leader.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: Leader role removed (or user was not a leader).
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /groups/{group_name}/leader/resign:
     post:
       operationId: resignLeader
@@ -591,6 +694,45 @@ paths:
             application/json:
               schema:
                 type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_name}/google-sync:
+    patch:
+      operationId: setGoogleSync
+      summary: Set Google Workspace sync config
+      description: >
+        Sets `recursive_name` and/or `direct_name` for the group's Google Workspace
+        sync configuration. Both fields are optional — omit a field to leave it
+        unchanged. Requires caller to be the group's **leader**.
+      parameters:
+        - $ref: '#/components/parameters/GroupName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recursive_name:
+                  type: string
+                  pattern: '^[a-z0-9.]+$'
+                direct_name:
+                  type: string
+                  pattern: '^[a-z0-9.]+$'
+      responses:
+        '200':
+          description: Sync config updated.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

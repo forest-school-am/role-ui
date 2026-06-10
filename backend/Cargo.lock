@@ -64,11 +64,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "authentik-forest-school-attributes"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "authentik-role-ui-backend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "autentik-macros",
+ "authentik-forest-school-attributes",
  "authentik_api",
  "axum",
  "axum-extra",

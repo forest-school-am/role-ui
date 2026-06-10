@@ -37,6 +37,16 @@ setup:
     set -euo pipefail
     AUTHENTIK_BOOTSTRAP_TOKEN="${AUTHENTIK_BOOTSTRAP_TOKEN}" bash scripts/setup-authentik.sh
 
+# Apply custom SQL migrations against the authentik PostgreSQL container
+migrate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker compose exec -T postgresql \
+        psql \
+        --username="${AUTHENTIK_POSTGRESQL__USER}" \
+        --dbname="${AUTHENTIK_POSTGRESQL__NAME}" \
+        < scripts/migrate-gws-uniqueness.sql
+
 # Create 10 test users + groups using the API token
 seed:
     #!/usr/bin/env bash

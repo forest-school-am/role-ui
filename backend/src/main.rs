@@ -41,13 +41,17 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "authentik_role_ui_backend=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "server=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
     // Load configuration from environment.
     let config = Config::from_env()?;
+    match audit::init(&config.audit_log_path) {
+        Ok(()) => tracing::info!(path = %config.audit_log_path.display(), "audit log opened"),
+        Err(e) => tracing::warn!(path = %config.audit_log_path.display(), err = %e, "audit log unavailable — continuing without file audit log"),
+    }
     let port = config.backend_port;
     let static_dir = config.static_dir.clone();
 
@@ -64,8 +68,8 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(async move {
         while let Some(_) = rx.recv().await {
-            println!("Updating database");
-            state_wrapper_copy.update(&client_copy).await.unwrap_or_else(|e| println!("{}", e));
+            tracing::info!("Updating database");
+            state_wrapper_copy.update(&client_copy).await.unwrap_or_else(|e| tracing::error!("{}", e));
         }
     });
 
