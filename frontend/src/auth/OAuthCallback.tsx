@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { getConfig } from '../config';
 import { useNavigate } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
@@ -49,9 +50,7 @@ const OAuthCallback: React.FC = () => {
       return;
     }
 
-    const baseUrl = import.meta.env.VITE_AUTHENTIK_BASE_URL as string;
-    const clientId = import.meta.env.VITE_OIDC_CLIENT_ID as string;
-    const redirectUri = import.meta.env.VITE_OIDC_REDIRECT_URI as string;
+    const { authentikBaseUrl: baseUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri } = getConfig();
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',

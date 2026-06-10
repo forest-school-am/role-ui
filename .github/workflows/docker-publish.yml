@@ -45,11 +45,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_AUTHENTIK_BASE_URL=${{ vars.VITE_AUTHENTIK_BASE_URL }}
-            VITE_OIDC_CLIENT_ID=${{ vars.VITE_OIDC_CLIENT_ID }}
-            VITE_OIDC_REDIRECT_URI=${{ vars.VITE_OIDC_REDIRECT_URI }}
-            VITE_OIDC_SLUG=${{ vars.VITE_OIDC_SLUG || 'roleui' }}
-            VITE_BACKEND_URL=${{ vars.VITE_BACKEND_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

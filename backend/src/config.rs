@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 pub struct Config {
     pub authentik_base_url: String,
     pub authentik_api_token: String,
+    pub oidc_client_id: String,
+    pub oidc_redirect_uri: String,
     pub backend_port: u16,
     pub static_dir: std::path::PathBuf,
     pub audit_log_path: std::path::PathBuf,
@@ -16,6 +18,10 @@ impl Config {
                 .context("AUTHENTIK_BASE_URL must be set")?,
             authentik_api_token: std::env::var("AUTHENTIK_API_TOKEN")
                 .context("AUTHENTIK_API_TOKEN must be set")?,
+            oidc_client_id: std::env::var("OIDC_CLIENT_ID")
+                .context("OIDC_CLIENT_ID must be set")?,
+            oidc_redirect_uri: std::env::var("OIDC_REDIRECT_URI")
+                .context("OIDC_REDIRECT_URI must be set")?,
             backend_port: std::env::var("BACKEND_PORT")
                 .context("BACKEND_PORT must be set")?
                 .parse::<u16>()

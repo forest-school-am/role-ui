@@ -1,4 +1,5 @@
 import React, { createContext, useEffect, useState } from 'react';
+import { getConfig } from '../config';
 
 interface AuthContextValue {
   token: string | null;
@@ -61,9 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const login = async () => {
-    const baseUrl = import.meta.env.VITE_AUTHENTIK_BASE_URL as string;
-    const clientId = import.meta.env.VITE_OIDC_CLIENT_ID as string;
-    const redirectUri = import.meta.env.VITE_OIDC_REDIRECT_URI as string;
+    const { authentikBaseUrl: baseUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri } = getConfig();
 
     const verifier = generateRandomBase64Url(64);
     const challenge = await generateCodeChallenge(verifier);

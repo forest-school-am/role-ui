@@ -8,17 +8,6 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 
-# Vite env vars are baked into the JS bundle at build time.
-ARG VITE_AUTHENTIK_BASE_URL
-ARG VITE_OIDC_CLIENT_ID
-ARG VITE_OIDC_REDIRECT_URI
-ARG VITE_OIDC_SLUG=roleui
-ARG VITE_BACKEND_URL
-ENV VITE_AUTHENTIK_BASE_URL=$VITE_AUTHENTIK_BASE_URL \
-    VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID \
-    VITE_OIDC_REDIRECT_URI=$VITE_OIDC_REDIRECT_URI \
-    VITE_OIDC_SLUG=$VITE_OIDC_SLUG \
-    VITE_BACKEND_URL=$VITE_BACKEND_URL
 RUN npm run build
 
 # ── Stage 2: Build backend ────────────────────────────────────────────────────

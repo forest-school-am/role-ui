@@ -100,25 +100,39 @@ async fn main() -> anyhow::Result<()> {
 
     // Build the SPA static file service.
     tracing::info!("serving static files from {:?}", static_dir);
-    let index_html: PathBuf = static_dir.join("index.html");
+    let index_html_path: PathBuf = static_dir.join("index.html");
+
+    // Read index.html once and inject the runtime config so the frontend
+    // doesn't need build-time env vars baked into the JS bundle.
+    let raw_html = tokio::fs::read_to_string(&index_html_path)
+        .await
+        .context("failed to read index.html")?;
+    let config_json = serde_json::json!({
+        "authentikBaseUrl": config.authentik_base_url,
+        "oidcClientId": config.oidc_client_id,
+        "oidcRedirectUri": config.oidc_redirect_uri,
+    });
+    let injected_html = Arc::new(raw_html.replacen(
+        "</head>",
+        &format!("<script>window.__CONFIG__={};</script></head>", config_json),
+        1,
+    ));
 
     // Build the axum router.
-    // ServeDir handles real asset files; the fallback closure returns index.html with
-    // HTTP 200 for all other paths so React Router can handle client-side navigation.
+    // ServeDir handles real asset files; the fallback closure returns the
+    // config-injected index.html for all other paths so React Router can
+    // handle client-side navigation.
     let app = Router::new()
         .merge(routes::router(state))
         .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
         .fallback(move || {
-            let path = index_html.clone();
+            let html = injected_html.clone();
             async move {
-                match tokio::fs::read(&path).await {
-                    Ok(bytes) => (
-                        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-                        bytes,
-                    )
-                        .into_response(),
-                    Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-                }
+                (
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    (*html).clone(),
+                )
+                    .into_response()
             }
         })
         // CORS — allow all origins for local development.
