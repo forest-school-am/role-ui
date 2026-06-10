@@ -1,12 +1,18 @@
 # Runs only the application against an existing authentik instance.
 # Copy app.env.example to .env and fill in the values, then:
-#   docker compose -f docker-compose.app.yml up --build
+#   GITHUB_TOKEN=<pat> docker compose -f docker-compose.app.yml up --build
 
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - github_token
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     environment:
