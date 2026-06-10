@@ -21,7 +21,7 @@ WORKDIR /build/backend
 RUN --mount=type=secret,id=github_token \
     TOKEN=$(cat /run/secrets/github_token) \
     && git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/" \
-    && cargo build --release \
+    && CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release \
     && git config --global --remove-section "url.https://x-access-token:${TOKEN}@github.com/"
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
