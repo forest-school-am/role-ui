@@ -2,9 +2,12 @@ use anyhow::Context;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method};
-use axum::{response::IntoResponse, Router};
+use axum::body::Body;
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request};
+use axum::middleware::Next;
+use axum::{response::{IntoResponse, Response}, Router};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use http_body_util::BodyExt;
 use moka::future::Cache;
 use sha2::{Digest, Sha256};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -12,6 +15,19 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+async fn log_server_errors(req: Request<Body>, next: Next) -> Response {
+    let response = next.run(req).await;
+    if response.status().is_server_error() {
+        let status = response.status();
+        let (parts, body) = response.into_parts();
+        let bytes = body.collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+        tracing::error!(status = %status, body = %String::from_utf8_lossy(&bytes), "server error");
+        Response::from_parts(parts, Body::from(bytes))
+    } else {
+        response
+    }
+}
 
 mod audit;
 mod auth;
@@ -172,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
             }
         })
         .layer(GovernorLayer { config: governor_conf })
+        .layer(axum::middleware::from_fn(log_server_errors))
         .layer({
             if config.cors_permissive {
                 tracing::warn!("CORS_PERMISSIVE=true — all origins allowed; do not use in production");
