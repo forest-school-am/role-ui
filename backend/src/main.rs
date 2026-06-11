@@ -161,8 +161,8 @@ async fn main() -> anyhow::Result<()> {
     // Rate limiter: 10 req/s sustained, burst of 50, keyed by peer IP.
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(10)
-            .burst_size(50)
+            .per_second(config.rps_limit)
+            .burst_size(config.rps_burst_limit)
             .finish()
             .unwrap(),
     );
