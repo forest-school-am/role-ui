@@ -71,14 +71,22 @@ const UserPreviewPanel: React.FC<UserPreviewPanelProps> = ({ username, onClose }
               <p className="text-sm text-gray-500">@{user.username}</p>
             </div>
 
-            {user.logins.length > 0 && (
+            {(user.logins.telegram || user.logins.google) && (
               <Section title="Contact" className={PANEL_SECTION_CLS}>
                 <div className="space-y-1">
-                  {user.logins.slice(0, 3).map((s, i) => (
-                    <p key={i} className="text-sm text-gray-700">
-                      <span className="font-medium">{s.kind}:</span> {s.address}
+                  {user.logins.telegram && (
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Telegram:</span>{' '}
+                      <a href={`https://t.me/${user.logins.telegram.replace(/^@/, '')}`} className="text-blue-600 hover:underline">
+                        {user.logins.telegram}
+                      </a>
                     </p>
-                  ))}
+                  )}
+                  {user.logins.google && (
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Google:</span> {user.logins.google}
+                    </p>
+                  )}
                 </div>
               </Section>
             )}

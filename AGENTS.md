@@ -1,6 +1,23 @@
-# Authentik Role UI — Project Briefing
+# Authentik Role UI — Agent Guide
 
-Custom UI layered on **authentik v2026.5.2**. A Rust/axum backend enforces role-based group management; a React/TypeScript frontend visualises the group DAG and provides a user profile page. All persistent state lives in authentik's `attributes` fields — no separate database.
+## Navigation protocol
+
+Every folder in this repo contains two files an agent must consult before doing work there:
+
+| File | Purpose |
+|---|---|
+| `AGENTS.md` | What lives here, key invariants, patterns to follow, things to avoid |
+| `INDEX.md` | One-line description of every immediate child (file or directory) |
+
+**Workflow:** start at the root `AGENTS.md` / `INDEX.md`, identify the relevant subtree, descend into it and repeat until you reach the files you need to change. Relevant context is pushed as deep as possible — the `AGENTS.md` in the most specific folder is the authoritative guide for that area.
+
+**After any change:** update the `AGENTS.md` / `INDEX.md` of every folder whose contents or contracts were affected.
+
+---
+
+## Project overview
+
+Custom UI layered on **authentik v2026.5.2**. A Rust/Axum backend enforces role-based group management; a React/TypeScript frontend visualises the group DAG and provides a user profile page. All persistent state lives in authentik's `attributes` fields — no separate database.
 
 ---
 
@@ -8,11 +25,11 @@ Custom UI layered on **authentik v2026.5.2**. A Rust/axum backend enforces role-
 
 | Layer | Tech |
 |---|---|
-| Backend | Rust + axum (in `backend/`) |
+| Backend | Rust + Axum (`backend/`) |
 | Attributes crate | `../authentik_forest_school_attributes/` — typed serde structs for all attributes |
-| Generated API client | `../authentik_api_2026_5_2/` — OpenAPI-generated Rust client for authentik |
-| Frontend | React + TypeScript + Vite + TanStack Query + React Flow + Tailwind + shadcn/ui (in `frontend/`) |
-| Identity | authentik 2026.5.2 via Docker Compose |
+| Generated Authentik API client | `../authentik_api_2026_5_2/` — OpenAPI-generated Rust client for authentik |
+| Frontend | React + TypeScript + Vite + TanStack Query + React Flow + Tailwind (`frontend/`) |
+| Identity | authentik 2026.5.2 via Docker Compose (`docker/composes/authentik.yml`) |
 
 ---
 
@@ -27,9 +44,9 @@ just app logs         # tail /tmp/backend.log and /tmp/frontend.log
 just app lint         # eslint + fallow + clippy
 just app build        # release backend + vite production build
 
-just authentik up     # docker compose up -d
+just authentik up     # docker compose up -d (authentik stack)
 just authentik down   # docker compose stop
-just authentik reset  # full wipe → start → wait → setup → seed (use after DB loss)
+just authentik reset  # full wipe -> start -> wait -> setup -> seed (use after DB loss)
 just authentik setup  # create service account + OIDC app (idempotent)
 just authentik seed   # create 10 test users + groups
 ```
@@ -43,85 +60,68 @@ just authentik seed   # create 10 test users + groups
 
 ## Credentials
 
-- Service account API token: in `.env` as `AUTHENTIK_API_TOKEN`
-- authentik admin password: in `.env` as `AUTHENTIK_BOOTSTRAP_PASSWORD`
-- OIDC client ID: `roleui`, redirect URI: `http://localhost:8080/callback`
-- Test users (password `Test1234!`): `alice.chen`, `bob.smith`, `carol.jones`, and 7 others
+- Service account API token: `.env` -> `AUTHENTIK_API_TOKEN`
+- authentik admin password: `.env` -> `AUTHENTIK_BOOTSTRAP_PASSWORD`
+- OIDC client ID: `roleui`, redirect URI: `http://localhost:8080/auth/callback`
+- Test users (password `Test1234!`): `alice.chen`, `bob.smith`, `carol.jones`, +7 others
+
+---
+
+## API / frontend boundary
+
+`api-spec.yaml` is the single source of truth for the backend API.
+
+1. Change the spec.
+2. `cd frontend && npx orval` -- regenerates `frontend/src/api/generated/api.ts`.
+3. **Manually** update `frontend/src/api/generated/index.ts` -- orval does NOT regenerate it; it must destructure every new function from `getAuthentikRoleUIBackend()`.
+4. Write/update the thin wrapper in `frontend/src/api/`.
+
+Never hand-write fetch calls for endpoints covered by the generated client.
 
 ---
 
 ## Role model
 
-Roles are stored in the group's `forest_school` attribute namespace (typed via the attributes crate):
+Roles are stored in the group's `forest_school` attribute namespace:
 
 ```
-forest_school.leaders: [username, ...]   — group leaders
-forest_school.manager: [username, ...]   — group managers
+forest_school.leaders: [username]   -- group leaders
+forest_school.manager: [username]   -- group managers
 ```
 
-Users not listed in either array but present in `group.users` are plain members. No role inheritance between groups.
+Members not listed in either array are plain members. No role inheritance.
 
 | Action | Minimum role |
 |---|---|
 | Add / remove member | manager |
-| Remove a manager | leader |
-| Add manager | leader |
-| Resign as leader (designate successor from managers) | leader |
+| Add manager / remove manager | leader |
+| Resign as leader (designate successor) | leader |
 | Create / attach / detach / disband child group | leader |
 | Set group color | manager |
 | Set google-sync config | leader |
+| Rename group | leader |
 | Patch own custom attributes | self |
-
-Groups are addressed by **name**; users by **username** throughout the API.
-
----
-
-## API surface
-
-```
-GET    /api/users?search=            search users
-GET    /api/users/me                 caller's profile
-PATCH  /api/users/me/attributes      replace caller's user-defined attributes
-GET    /api/users/:username          any user's profile
-
-GET    /api/groups                   list all groups
-GET    /api/groups/:name             group detail
-DELETE /api/groups/:name             disband (leader, no children)
-POST   /api/groups/:name/members     add member (manager+)
-DELETE /api/groups/:name/members/:u  remove member (manager+)
-POST   /api/groups/:name/managers    add manager (leader)
-DELETE /api/groups/:name/managers/:u remove manager (leader)
-POST   /api/groups/:name/leader/resign  resign + hand off to a manager (leader)
-POST   /api/groups/:name/subgroups   create child group; caller auto-assigned leader
-POST   /api/groups/:name/children    attach existing group as child (leader)
-DELETE /api/groups/:name/children/:c detach child (leader)
-PUT    /api/groups/:name/color       set group color (manager+)
-PATCH  /api/groups/:name/google-sync set google_sync config (leader)
-```
+| Change display name (one-time) | self |
+| Toggle name freeze | superuser |
 
 ---
 
 ## Authentik 2026.5.2 quirks
 
-**Provider config** — all must be set correctly or auth silently breaks:
+**Attributes are deep-merged on PATCH** -- omitting a key leaves the old value in place. Always serialize booleans explicitly; never use `skip_serializing_if` on fields that can be `false` after being set to `true`.
 
-| Field | Required value | What breaks if wrong |
-|---|---|---|
-| `sub_mode` | `user_uuid` | `sub` becomes username → UUID lookup fails |
-| `grant_types` | `["authorization_code", "refresh_token"]` | Token endpoint returns `invalid_request` |
-| `property_mappings` | must include openid scope mapping UUID | userinfo returns 403 `Scope mismatch` |
-| `signing_key` | `null` | RSA cert makes `_id_token` empty → userinfo JSONDecodeError |
-| `redirect_uris` | array of `{matching_mode, url}` objects | Redirect rejected |
+**Provider config** -- all must be set correctly or auth silently breaks:
 
-Run `just authentik setup` after any DB reset — it fixes all of the above.
+| Field | Required value |
+|---|---|
+| `sub_mode` | `user_uuid` |
+| `grant_types` | `["authorization_code", "refresh_token"]` |
+| `signing_key` | `null` |
+| `redirect_uris` | array of `{matching_mode, url}` objects |
 
-**API differences from older authentik docs:**
-- Authorize/token/userinfo: no slug in path (`/application/o/userinfo/`, not `/application/o/<slug>/userinfo/`)
-- Pagination shape: `{pagination: {current, total_pages}, results: [...]}`
-- `parents: UUID[]` on groups — true DAG, not a single `parent_id`
-- Token `view_key`: GET, not POST
+Run `just authentik setup` after any DB reset.
 
-If login works but `/api/users/me` returns 502/400 after a DB reset, the browser has a stale token. Fix:
+If login works but `/api/users/me` returns 502/400 after a DB reset -- stale browser token:
 ```js
 sessionStorage.clear(); location.href = '/';
 ```

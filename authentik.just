@@ -5,18 +5,18 @@ help:
 
 # Start the authentik stack (postgres + redis + server + worker)
 up:
-    docker compose up -d
+    docker compose -f docker/composes/authentik.yml up -d
 
 # Stop containers without wiping data
 down:
-    docker compose stop
+    docker compose -f docker/composes/authentik.yml stop
 
 # Full wipe and rebuild: stop+wipe volumes → start → wait for health → setup → seed
 reset:
     #!/usr/bin/env bash
     set -euo pipefail
-    docker compose down -v
-    docker compose up -d
+    docker compose -f docker/composes/authentik.yml down -v
+    docker compose -f docker/composes/authentik.yml up -d
     echo "Waiting for authentik to become healthy…"
     until curl -sf http://localhost:9000/-/health/ready/ >/dev/null 2>&1; do
         sleep 5
@@ -41,7 +41,7 @@ setup:
 migrate:
     #!/usr/bin/env bash
     set -euo pipefail
-    docker compose exec -T postgresql \
+    docker compose -f docker/composes/authentik.yml exec -T postgresql \
         psql \
         --username="${AUTHENTIK_POSTGRESQL__USER}" \
         --dbname="${AUTHENTIK_POSTGRESQL__NAME}" \

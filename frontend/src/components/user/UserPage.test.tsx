@@ -29,22 +29,21 @@ describe('UserPage', () => {
     expect(screen.getByText('Suspended')).toBeInTheDocument();
   });
 
-  it('renders email login as a mailto link', () => {
-    renderPage(makeUser({ logins: [{ kind: 'email', address: 'alice@example.com' }] }));
-    const link = screen.getByRole('link', { name: 'alice@example.com' });
-    expect(link).toHaveAttribute('href', 'mailto:alice@example.com');
-  });
-
   it('renders telegram login as a t.me link', () => {
-    renderPage(makeUser({ logins: [{ kind: 'telegram', address: '@alice' }] }));
+    renderPage(makeUser({ logins: { telegram: '@alice', google: undefined } }));
     const link = screen.getByRole('link', { name: '@alice' });
     expect(link).toHaveAttribute('href', 'https://t.me/alice');
   });
 
-  it('renders unknown login kind without a link', () => {
-    renderPage(makeUser({ logins: [{ kind: 'github', address: 'alice-gh' }] }));
-    expect(screen.getByText('alice-gh')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'alice-gh' })).not.toBeInTheDocument();
+  it('renders google login as plain text', () => {
+    renderPage(makeUser({ logins: { google: 'alice@example.com', telegram: undefined } }));
+    expect(screen.getByText('alice@example.com')).toBeInTheDocument();
+  });
+
+  it('renders nothing when both logins are absent', () => {
+    renderPage(makeUser({ logins: {} }));
+    expect(screen.queryByText('Telegram')).not.toBeInTheDocument();
+    expect(screen.queryByText('Google')).not.toBeInTheDocument();
   });
 
   it('shows group tags with correct role styling', () => {
