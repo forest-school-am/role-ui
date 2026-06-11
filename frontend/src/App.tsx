@@ -52,7 +52,7 @@ const App: React.FC = () => {
       <AuthProvider>
         <Routes>
           {/* Public route — OIDC callback */}
-          <Route path="/callback" element={<OAuthCallback />} />
+          <Route path="/auth/callback" element={<OAuthCallback />} />
 
           {/* Protected routes — wrapped in AppShell layout */}
           <Route
