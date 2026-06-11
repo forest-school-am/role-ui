@@ -55,7 +55,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // On mount: if the stored token has already expired, clear session and redirect.
   useEffect(() => {
     const expiresAt = sessionStorage.getItem('token_expires_at');
+    console.log('[auth] AuthProvider mount: expiresAt =', expiresAt, 'now =', Date.now());
     if (expiresAt && Date.now() > parseInt(expiresAt, 10)) {
+      console.warn('[auth] token expired, clearing session');
       sessionStorage.clear();
       window.location.href = '/';
     }
@@ -63,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const login = async () => {
     const { authentikBaseUrl: baseUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri } = getConfig();
+    console.log('[auth] login() called, config:', { baseUrl, clientId, redirectUri });
 
     const verifier = generateRandomBase64Url(64);
     const challenge = await generateCodeChallenge(verifier);

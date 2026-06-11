@@ -21,6 +21,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
+      console.error('[auth] 401 from', error.config?.url, '— clearing session');
       sessionStorage.clear();
       window.location.href = '/';
     }

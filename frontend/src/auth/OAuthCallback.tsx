@@ -28,9 +28,12 @@ const OAuthCallback: React.FC = () => {
     const storedState = sessionStorage.getItem('oauth_state');
     const verifier = sessionStorage.getItem('pkce_verifier');
 
+    console.log('[auth] callback params:', { code: code ? `${code.slice(0, 8)}…` : null, state, storedState, hasVerifier: !!verifier });
+
     if (!code) {
       const errorParam = params.get('error');
       const desc = params.get('error_description');
+      console.error('[auth] no code in callback:', { errorParam, desc, search: window.location.search });
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(
         errorParam
@@ -41,16 +44,19 @@ const OAuthCallback: React.FC = () => {
     }
 
     if (state !== storedState) {
+      console.error('[auth] state mismatch:', { state, storedState });
       setError('OAuth state mismatch. Possible CSRF attack.');
       return;
     }
 
     if (!verifier) {
+      console.error('[auth] pkce_verifier missing from sessionStorage');
       setError('PKCE verifier not found. Please try logging in again.');
       return;
     }
 
     const { authentikBaseUrl: baseUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri } = getConfig();
+    console.log('[auth] exchanging code at', `${baseUrl}/application/o/token/`, { clientId, redirectUri });
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -67,6 +73,7 @@ const OAuthCallback: React.FC = () => {
       body: body.toString(),
     })
       .then(async (res) => {
+        console.log('[auth] token endpoint response:', res.status);
         if (!res.ok) {
           const text = await res.text();
           throw new Error(`Token exchange failed: ${text}`);
@@ -79,6 +86,7 @@ const OAuthCallback: React.FC = () => {
         }>;
       })
       .then((data) => {
+        console.log('[auth] token exchange succeeded, expires_in:', data.expires_in, 'has_id_token:', !!data.id_token);
         sessionStorage.setItem('auth_token', data.access_token);
 
         if (data.refresh_token) {
@@ -95,6 +103,7 @@ const OAuthCallback: React.FC = () => {
         if (data.id_token) {
           const payload = decodeJwtPayload(data.id_token);
           const sub = typeof payload.sub === 'string' ? payload.sub : null;
+          console.log('[auth] id_token sub:', sub);
           if (sub) {
             sessionStorage.setItem('user_uuid', sub);
           }
@@ -104,10 +113,12 @@ const OAuthCallback: React.FC = () => {
         sessionStorage.removeItem('pkce_verifier');
         sessionStorage.removeItem('oauth_state');
 
+        console.log('[auth] navigating to /me, auth_token in sessionStorage:', !!sessionStorage.getItem('auth_token'));
         navigate('/me', { replace: true });
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
+        console.error('[auth] token exchange error:', message);
         setError(message);
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -36,6 +36,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const token = sessionStorage.getItem('auth_token');
+  console.log('[auth] ProtectedRoute: token present =', !!token);
   if (!token) {
     return <LoginRedirect />;
   }
