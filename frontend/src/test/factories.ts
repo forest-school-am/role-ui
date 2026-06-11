@@ -7,7 +7,7 @@ export function makeUser(overrides: Partial<User> = {}): User {
     is_active: true,
     is_superuser: false,
     name_frozen: false,
-    logins: [{ kind: 'email', address: 'alice@example.com' }],
+    logins: { google: 'alice@example.com', telegram: 'alice' },
     groups: { leader: [], manager: [], member: [] },
     attributes: [],
     ...overrides,

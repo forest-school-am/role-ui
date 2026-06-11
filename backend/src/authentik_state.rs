@@ -282,12 +282,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
             let ua = UserAttributes::from_raw(user.attributes.clone()).unwrap_or_default();
             let fs = ua.forest_school.as_ref();
 
-            let logins = fs
-                .map(|f| f.logins.iter().map(|l| crate::routes::api_models::LoginAccount {
-                    kind: l.kind.clone(),
-                    address: l.address.clone(),
-                }).collect_vec())
-                .unwrap_or_default();
+            let logins = fs.map(|f| f.logins.clone()).unwrap_or_default();
 
             let attributes = fs
                 .map(|f| {

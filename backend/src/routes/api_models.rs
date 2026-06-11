@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use enum_map::{EnumMap,Enum};
 use regex::Regex;
-use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
+use authentik_forest_school_attributes::{GroupAttributes, UserAttributes, UserLogins};
 use crate::authentik_state::{GroupPkType, UserPkType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct User {
     pub is_active: bool,
     pub is_superuser: bool,
     pub name_frozen: bool,
-    pub logins: Vec<LoginAccount>,
+    pub logins: UserLogins,
     pub groups: RoleSplit<GroupLink>,
     pub attributes: Vec<(String, String)>
 }
@@ -24,7 +24,8 @@ impl User {
     pub fn matches(&self, term: &Regex) -> bool {
         term.is_match(&self.username) ||
             term.is_match(&self.name) ||
-            self.logins.iter().any(|l| l.matches(term))
+            self.logins.google.as_deref().is_some_and(|a| term.is_match(a)) ||
+            self.logins.telegram.as_deref().is_some_and(|a| term.is_match(a))
     }
 }
 impl From<&User> for UserLink {
@@ -98,18 +99,6 @@ pub enum GroupRole {
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleSplit<LinkType: Link>(pub EnumMap<GroupRole, Vec<LinkType>>);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoginAccount {
-    /// e.g. "email", "telegram", "google"
-    pub kind: String,
-    pub address: String,
-}
-
-impl LoginAccount {
-    pub fn matches(&self, term: &Regex) -> bool {
-        term.is_match(&self.address)
-    }
-}
 
 #[cfg(test)]
 mod test {

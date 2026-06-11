@@ -36,15 +36,15 @@ components:
         name:
           type: string
 
-    LoginAccount:
+    UserLogins:
       type: object
-      required: [kind, address]
       properties:
-        kind:
+        google:
           type: string
-          description: e.g. "email", "telegram", "google"
-        address:
+          nullable: true
+        telegram:
           type: string
+          nullable: true
 
     GroupRoleSplit:
       description: Members of a group split by their role.
@@ -98,9 +98,7 @@ components:
           type: boolean
           description: True after the user has used their one-time display-name change.
         logins:
-          type: array
-          items:
-            $ref: '#/components/schemas/LoginAccount'
+          $ref: '#/components/schemas/UserLogins'
         groups:
           $ref: '#/components/schemas/UserGroupRoleSplit'
         attributes:

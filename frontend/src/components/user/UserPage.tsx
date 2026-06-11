@@ -16,21 +16,6 @@ interface UserPageProps {
   isMe?: boolean;
 }
 
-const LOGIN_LABELS: Record<string, string> = {
-  email: 'Email',
-  telegram: 'Telegram',
-  google: 'Google',
-};
-
-function loginLabel(kind: string): string {
-  return LOGIN_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
-}
-
-function loginHref(kind: string, address: string): string | undefined {
-  if (kind === 'email') return `mailto:${address}`;
-  if (kind === 'telegram') return `https://t.me/${address.replace(/^@/, '')}`;
-  return undefined;
-}
 
 interface FlatGroupMembership {
   name: string;
@@ -187,26 +172,26 @@ const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
           <dd className="font-mono text-gray-600">{user.username}</dd>
         </div>
 
-        {user.logins.map((account) => {
-          const href = loginHref(account.kind, account.address);
-          return (
-            <div key={account.kind} className="flex gap-2">
-              <dt className="font-medium text-gray-500 w-24 shrink-0">
-                {loginLabel(account.kind)}
-              </dt>
-              <dd className="flex items-center gap-1.5">
-                {href ? (
-                  <a href={href} className="text-blue-600 hover:underline">
-                    {account.address}
-                  </a>
-                ) : (
-                  <span>{account.address}</span>
-                )}
-                <CopyIcon text={account.address} />
-              </dd>
-            </div>
-          );
-        })}
+        {user.logins.telegram && (
+          <div className="flex gap-2">
+            <dt className="font-medium text-gray-500 w-24 shrink-0">Telegram</dt>
+            <dd className="flex items-center gap-1.5">
+              <a href={`https://t.me/${user.logins.telegram.replace(/^@/, '')}`} className="text-blue-600 hover:underline">
+                {user.logins.telegram}
+              </a>
+              <CopyIcon text={user.logins.telegram} />
+            </dd>
+          </div>
+        )}
+        {user.logins.google && (
+          <div className="flex gap-2">
+            <dt className="font-medium text-gray-500 w-24 shrink-0">Google</dt>
+            <dd className="flex items-center gap-1.5">
+              <span>{user.logins.google}</span>
+              <CopyIcon text={user.logins.google} />
+            </dd>
+          </div>
+        )}
       </dl>
 
       {/* Group memberships */}

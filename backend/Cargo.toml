@@ -1,6 +1,6 @@
 [package]
 name = "authentik-role-ui-backend"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -36,5 +36,5 @@ itertools = "0.14.0"
 regex = "1.12.3"
 
 authentik_api = { git = "https://github.com/forest-school-am/authentik_api", rev = "61267dd73615dc0aeedaf3582a069e5d119cd529" }
-authentik-forest-school-attributes = { git = "https://github.com/forest-school-am/authentik_custom_attributes", rev = "ff3c882e9fb57542b0dd239de42444b7f15473c0" }
+authentik-forest-school-attributes = { git = "https://github.com/forest-school-am/authentik_custom_attributes", rev = "20d8b27" }
 uuid = { version = "1", features = ["serde"] }

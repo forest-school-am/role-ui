@@ -23,10 +23,9 @@ export interface GroupLink {
   name: string;
 }
 
-export interface LoginAccount {
-  /** e.g. "email", "telegram", "google" */
-  kind: string;
-  address: string;
+export interface UserLogins {
+  google?: string | null;
+  telegram?: string | null;
 }
 
 /**
@@ -54,7 +53,7 @@ export interface User {
   is_superuser: boolean;
   /** True after the user has used their one-time display-name change. */
   name_frozen: boolean;
-  logins: LoginAccount[];
+  logins: UserLogins;
   groups: UserGroupRoleSplit;
   /**
      * @items.minItems 2
