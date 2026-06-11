@@ -1,9 +1,13 @@
 use anyhow::Context;
 use std::path::PathBuf;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
-use axum::{http::header, response::IntoResponse, Router};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method};
+use axum::{response::IntoResponse, Router};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use moka::future::Cache;
+use sha2::{Digest, Sha256};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -113,11 +117,39 @@ async fn main() -> anyhow::Result<()> {
         "oidcClientId": config.oidc_client_id,
         "oidcRedirectUri": config.oidc_redirect_uri,
     });
+    let script_content = format!("window.__CONFIG__={};", config_json);
+
+    // Compute the SHA-256 hash of the script content for a hash-based CSP.
+    // This avoids 'unsafe-inline' while still allowing this specific inline script.
+    let script_hash = BASE64.encode(Sha256::digest(script_content.as_bytes()));
+    let csp = format!(
+        "default-src 'self'; \
+         script-src 'self' 'sha256-{script_hash}'; \
+         style-src 'self' 'unsafe-inline'; \
+         connect-src 'self' {authentik_base_url}; \
+         img-src 'self' data:; \
+         object-src 'none'; \
+         frame-ancestors 'none';",
+        authentik_base_url = config.authentik_base_url,
+    );
+    let csp_hv = Arc::new(
+        HeaderValue::from_str(&csp).context("CSP string is not a valid header value")?,
+    );
+
     let injected_html = Arc::new(raw_html.replacen(
         "</head>",
-        &format!("<script>window.__CONFIG__={};</script></head>", config_json),
+        &format!("<script>{script_content}</script></head>"),
         1,
     ));
+
+    // Rate limiter: 10 req/s sustained, burst of 50, keyed by peer IP.
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(10)
+            .burst_size(50)
+            .finish()
+            .unwrap(),
+    );
 
     // Build the axum router.
     // ServeDir handles real asset files; the fallback closure returns the
@@ -128,17 +160,39 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
         .fallback(move || {
             let html = injected_html.clone();
+            let csp = csp_hv.clone();
             async move {
-                (
-                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-                    (*html).clone(),
-                )
-                    .into_response()
+                let mut headers = HeaderMap::new();
+                headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+                headers.insert(HeaderName::from_static("content-security-policy"), (*csp).clone());
+                headers.insert(HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff"));
+                headers.insert(HeaderName::from_static("x-frame-options"), HeaderValue::from_static("DENY"));
+                headers.insert(HeaderName::from_static("referrer-policy"), HeaderValue::from_static("strict-origin-when-cross-origin"));
+                (headers, (*html).clone()).into_response()
             }
         })
-        // CORS — allow all origins for local development.
-        .layer(CorsLayer::permissive())
-        // Request tracing.
+        .layer(GovernorLayer { config: governor_conf })
+        .layer({
+            if config.cors_permissive {
+                tracing::warn!("CORS_PERMISSIVE=true — all origins allowed; do not use in production");
+                CorsLayer::permissive()
+            } else {
+                CorsLayer::new()
+                    .allow_origin(
+                        config.app_origin
+                            .parse::<HeaderValue>()
+                            .context("APP_ORIGIN is not a valid header value")?,
+                    )
+                    .allow_methods([
+                        Method::GET,
+                        Method::POST,
+                        Method::PATCH,
+                        Method::PUT,
+                        Method::DELETE,
+                    ])
+                    .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+            }
+        })
         .layer(TraceLayer::new_for_http());
 
     let addr = format!("0.0.0.0:{port}");

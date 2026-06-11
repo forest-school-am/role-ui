@@ -459,7 +459,11 @@ async fn resign_leader(
     let gpk = &group.pk;
     let mut ga = group.attrs.clone();
     let fs = ga.forest_school.get_or_insert_with(Default::default);
-    fs.leaders = vec![successor_username.clone()];
+    // Remove only the resigning caller; other co-leaders stay.
+    fs.leaders.retain(|u| u != &caller.username);
+    if !fs.leaders.contains(&successor_username) {
+        fs.leaders.push(successor_username.clone());
+    }
     fs.manager.retain(|u| u != &successor_username);
 
     state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
@@ -476,6 +480,14 @@ async fn resign_leader(
     Ok(Json(()))
 }
 
+fn valid_hex_color(s: &str) -> bool {
+    let hex = match s.strip_prefix('#') {
+        Some(h) => h,
+        None => return false,
+    };
+    matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 async fn set_group_color(
     State(state): State<AppState>,
     _fresh: FreshCache,
@@ -483,6 +495,11 @@ async fn set_group_color(
     _write_lock: WriteLock,
     Json(SetColorBody { color }): Json<SetColorBody>,
 ) -> Result<Json<()>, AppError> {
+    if !valid_hex_color(&color) {
+        return Err(AppError::BadRequest(
+            "color must be a hex color: #rgb, #rgba, #rrggbb, or #rrggbbaa".to_string(),
+        ));
+    }
     let gpk = &group.pk;
     let mut ga = group.attrs.clone();
     ga.forest_school.get_or_insert_with(Default::default).color = Some(color.clone());

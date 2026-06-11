@@ -1,12 +1,13 @@
 # Runs only the application against an existing authentik instance.
 # Copy app.env.example to .env and fill in the values, then:
-#   docker compose -f docker-compose.app.yml up --build
+#   docker compose -f docker-compose.app.yml up
+#
+# The image is pulled from GitHub Container Registry.
+# Pin a specific release with: IMAGE_TAG=sha-<commit> docker compose -f docker-compose.app.yml up
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/forest-school-am/role-ui:${IMAGE_TAG:-latest}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     environment:
