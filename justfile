@@ -1,4 +1,4 @@
-set dotenv-load
+set dotenv-path := "docker/.env"
 
 # Manage authentik test-stand
 mod authentik

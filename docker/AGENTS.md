@@ -19,3 +19,13 @@ CI builds and pushes the image via `.github/workflows/docker-publish.yml`.
 
 - The authentik compose uses a **patched image** (`authentik-patched:2026.5.2`) — this must be built locally before first use; it is not on a public registry.
 - Do not change the postgres/redis service names — they are used as hostnames inside the docker network by the authentik server/worker.
+
+## Environment files
+
+| File | Used by |
+|---|---|
+| `.env` | Authentik dev stack (compose + just recipes); loaded automatically by `set dotenv-path := "docker/.env"` in the root justfile |
+| `.env.example` | Template — copy to `.env` and fill in before first run |
+| `app.env.example` | Template for the production app deploy; only needs authentik connection details and OIDC config |
+
+`.env` is gitignored. Never commit it.

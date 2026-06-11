@@ -24,7 +24,7 @@ reset:
     echo "Authentik is healthy."
     just authentik setup
     # Re-source .env so seed gets the token just written by setup
-    set -a; source .env; set +a
+    set -a; source docker/.env; set +a
     AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" just authentik seed
 
 # ---------------------------------------------------------------------------
