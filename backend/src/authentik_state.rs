@@ -175,7 +175,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
 
     let groups = authentik_groups.iter()
         .map(|group| {
-            let mut members: HashSet<i64> = group.users.iter().cloned().collect();
+            let mut members: HashSet<UserPkType> = group.users.iter().cloned().collect();
 
             let ga = GroupAttributes::from_raw(group.attributes.clone()).unwrap_or_default();
             let fs = ga.forest_school.as_ref();
@@ -303,6 +303,7 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
 
             User {
                 pk: user.pk,
+                name_frozen: ua.forest_school.as_ref().map_or(false, |f| f.name_frozen),
                 attrs: ua,
                 username: user.username.clone(),
                 name: user.name.clone(),
@@ -362,7 +363,7 @@ impl AuthentikState {
     }
 }
 
-type UserPkType = i64;
-type GroupPkType = String;
+pub type UserPkType = i64;
+pub type GroupPkType = String;
 pub type UserIdType = String;
 pub type GroupIdType = String;

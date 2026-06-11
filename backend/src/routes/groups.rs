@@ -52,6 +52,7 @@ pub fn router() -> Router<AppState> {
                     delete(detach_child_group),
                 )
                 .route("/color", put(set_group_color))
+                .route("/name", put(rename_group))
                 .route("/google-sync", patch(set_google_sync)),
         ),
     )
@@ -84,6 +85,11 @@ struct ResignLeaderBody {
 #[derive(Deserialize)]
 struct SetColorBody {
     color: String,
+}
+
+#[derive(Deserialize)]
+struct RenameGroupBody {
+    name: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +514,28 @@ async fn set_group_color(
         .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;
 
     audit::log(&caller, "set_group_color", &group.name, None, "ok", Some(&color));
+    Ok(Json(()))
+}
+
+async fn rename_group(
+    State(state): State<AppState>,
+    _fresh: FreshCache,
+    GroupAccess { group, caller, .. }: GroupAccess<Leader>,
+    _write_lock: WriteLock,
+    Json(RenameGroupBody { name }): Json<RenameGroupBody>,
+) -> Result<Json<()>, AppError> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("name is required".to_string()));
+    }
+    if name.len() < 5 {
+        return Err(AppError::BadRequest(
+            "name must be at least 5 characters".to_string(),
+        ));
+    }
+    let old_name = group.name.clone();
+    state.authentik_client.patch_group_name(&group.pk, name.clone()).await?;
+    audit::log(&caller, "rename_group", &old_name, None, "ok", Some(&name));
     Ok(Json(()))
 }
 

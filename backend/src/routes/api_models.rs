@@ -2,17 +2,19 @@ use serde::{Deserialize, Serialize};
 use enum_map::{EnumMap,Enum};
 use regex::Regex;
 use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
+use crate::authentik_state::{GroupPkType, UserPkType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
     #[serde(skip)]
-    pub pk: i64,
+    pub pk: UserPkType,
     #[serde(skip)]
     pub attrs: UserAttributes,
     pub username: String,
     pub name: String,
     pub is_active: bool,
     pub is_superuser: bool,
+    pub name_frozen: bool,
     pub logins: Vec<LoginAccount>,
     pub groups: RoleSplit<GroupLink>,
     pub attributes: Vec<(String, String)>
@@ -43,11 +45,11 @@ pub struct GoogleSyncConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Group {
     #[serde(skip)]
-    pub pk: String,
+    pub pk: GroupPkType,
     #[serde(skip)]
     pub attrs: GroupAttributes,
     #[serde(skip)]
-    pub parent_pks: Vec<String>,
+    pub parent_pks: Vec<GroupPkType>,
     pub name: String,
     pub members: RoleSplit<UserLink>,
     pub children: Vec<GroupLink>,

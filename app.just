@@ -33,8 +33,10 @@ up:
     AUTHENTIK_BASE_URL="http://localhost:9000" \
     AUTHENTIK_API_TOKEN="${AUTHENTIK_API_TOKEN}" \
     BACKEND_PORT="${BACKEND_PORT}" \
+    OIDC_CLIENT_ID="roleui" \
+    OIDC_REDIRECT_URI="http://localhost:8080/auth/callback" \
     STATIC_DIR="{{ justfile_directory() }}/frontend/dist" \
-    backend/target/debug/server &
+    backend/target/debug/server >> /tmp/backend.log 2>&1 &
     BACKEND_PID=$!
 
     echo "Frontend PID ${FRONTEND_PID} → /tmp/frontend.log"

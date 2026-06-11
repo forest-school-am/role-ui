@@ -3,6 +3,7 @@ use authentik_api::apis::configuration::Configuration;
 use authentik_api::apis::core_api;
 use authentik_api::models;
 use serde_json::Value;
+use crate::authentik_state::{GroupPkType, UserPkType};
 use crate::error::AppError;
 
 // ---------------------------------------------------------------------------
@@ -11,7 +12,7 @@ use crate::error::AppError;
 
 #[derive(Clone)]
 pub struct AuthentikUser {
-    pub pk: i64,
+    pub pk: UserPkType,
     pub username: String,
     pub name: String,
     pub is_active: bool,
@@ -21,10 +22,10 @@ pub struct AuthentikUser {
 
 #[derive(Clone)]
 pub struct AuthentikGroup {
-    pub pk: String,          // UUID as lowercase string
+    pub pk: GroupPkType,
     pub name: String,
-    pub parents: Vec<String>, // parent UUID strings
-    pub users: Vec<i64>,
+    pub parents: Vec<GroupPkType>,
+    pub users: Vec<UserPkType>,
     pub attributes: Option<HashMap<String, Value>>,
     pub is_superuser: bool,
 }
@@ -32,7 +33,7 @@ pub struct AuthentikGroup {
 impl AuthentikUser {
     fn from_api(u: models::User) -> Self {
         Self {
-            pk: u.pk as i64,
+            pk: u.pk as UserPkType,
             username: u.username,
             name: u.name,
             is_active: u.is_active.unwrap_or(true),
@@ -55,7 +56,7 @@ impl AuthentikGroup {
             users: g.users
                 .unwrap_or_default()
                 .iter()
-                .map(|&pk| pk as i64)
+                .map(|&pk| pk as UserPkType)
                 .collect(),
             attributes: g.attributes,
             is_superuser: g.is_superuser.unwrap_or(false),
@@ -223,7 +224,7 @@ impl AuthentikClient {
         Ok(all)
     }
 
-    pub async fn add_user_to_group(&self, group_pk: &str, user_pk: i64) -> Result<(), AppError> {
+    pub async fn add_user_to_group(&self, group_pk: &GroupPkType, user_pk: UserPkType) -> Result<(), AppError> {
         core_api::core_groups_add_user_create(
             &self.config,
             group_pk,
@@ -235,8 +236,8 @@ impl AuthentikClient {
 
     pub async fn remove_user_from_group(
         &self,
-        group_pk: &str,
-        user_pk: i64,
+        group_pk: &GroupPkType,
+        user_pk: UserPkType,
     ) -> Result<(), AppError> {
         core_api::core_groups_remove_user_create(
             &self.config,
@@ -249,7 +250,7 @@ impl AuthentikClient {
 
     pub async fn patch_group_attributes(
         &self,
-        group_pk: &str,
+        group_pk: &GroupPkType,
         attributes: HashMap<String, Value>,
     ) -> Result<(), AppError> {
         let req = models::PatchedGroupRequest {
@@ -262,10 +263,25 @@ impl AuthentikClient {
         Ok(())
     }
 
+    pub async fn patch_group_name(
+        &self,
+        group_pk: &GroupPkType,
+        name: String,
+    ) -> Result<(), AppError> {
+        let req = models::PatchedGroupRequest {
+            name: Some(name),
+            ..Default::default()
+        };
+        core_api::core_groups_partial_update(&self.config, group_pk, Some(req))
+            .await
+            .map_err(map_api_err)?;
+        Ok(())
+    }
+
     pub async fn patch_group_parents(
         &self,
-        group_pk: &str,
-        parent_pks: Vec<String>,
+        group_pk: &GroupPkType,
+        parent_pks: Vec<GroupPkType>,
     ) -> Result<(), AppError> {
         let parents: Vec<uuid::Uuid> = parent_pks
             .iter()
@@ -284,7 +300,7 @@ impl AuthentikClient {
     pub async fn create_group(
         &self,
         name: &str,
-        parent_pk: &str,
+        parent_pk: &GroupPkType,
     ) -> Result<AuthentikGroup, AppError> {
         let parent_uuid: uuid::Uuid = parent_pk
             .parse()
@@ -300,22 +316,37 @@ impl AuthentikClient {
         Ok(AuthentikGroup::from_api(group))
     }
 
-    pub async fn delete_group(&self, group_pk: &str) -> Result<(), AppError> {
+    pub async fn delete_group(&self, group_pk: &GroupPkType) -> Result<(), AppError> {
         core_api::core_groups_destroy(&self.config, group_pk)
             .await
             .map_err(map_api_err)
     }
 
+    pub async fn patch_user_name(
+        &self,
+        user_pk: UserPkType,
+        name: String,
+    ) -> Result<(), AppError> {
+        let req = models::PatchedUserRequest {
+            name: Some(name),
+            ..Default::default()
+        };
+        core_api::core_users_partial_update(&self.config, user_pk as i32, Some(req))
+            .await
+            .map_err(map_api_err)?;
+        Ok(())
+    }
+
     pub async fn patch_user_attributes(
         &self,
-        user_pk: i32,
+        user_pk: UserPkType,
         attributes: HashMap<String, Value>,
     ) -> Result<(), AppError> {
         let req = models::PatchedUserRequest {
             attributes: Some(attributes),
             ..Default::default()
         };
-        core_api::core_users_partial_update(&self.config, user_pk, Some(req))
+        core_api::core_users_partial_update(&self.config, user_pk as i32, Some(req))
             .await
             .map_err(map_api_err)?;
         Ok(())

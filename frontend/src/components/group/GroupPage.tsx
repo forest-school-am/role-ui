@@ -9,6 +9,7 @@ import {
   removeLeader,
   addManager,
   addLeader,
+  renameGroup,
 } from "../../api/groups";
 import { extractApiError } from "../../api/client";
 import { invalidateGroup } from "../../api/groupQueryHelpers";
@@ -20,6 +21,7 @@ import DashedButton from "../ui/DashedButton";
 import MutationErrorBanner from "../ui/MutationErrorBanner";
 import EmptyNote from "../ui/EmptyNote";
 import Section from "../ui/Section";
+import EditButton from "../ui/EditButton";
 import GroupModalsRenderer from "../panels/GroupModalsRenderer";
 import UserRow from "../user/UserRow";
 import GroupRow from "./GroupRow";
@@ -37,6 +39,9 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
   const navigate = useNavigate();
   const { activeModal, open, close } = useGroupModals();
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [isRenamingGroup, setIsRenamingGroup] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -114,6 +119,23 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
     onError: (err) => setMutationError(extractApiError(err)),
   });
 
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameGroup(groupName, name),
+    onSuccess: (_, newName) => {
+      setIsRenamingGroup(false);
+      setRenameError(null);
+      void queryClient.refetchQueries({ queryKey: ['groups'] });
+      navigate(`/groups/${encodeURIComponent(newName)}`, { replace: true });
+    },
+    onError: (err) => setRenameError(extractApiError(err)),
+  });
+
+  function startRename() {
+    setRenameValue(detail?.name ?? '');
+    setRenameError(null);
+    setIsRenamingGroup(true);
+  }
+
   if (detailLoading) return <PageLoadingSkeleton />;
 
   if (detailError) {
@@ -153,7 +175,50 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
         <div className="flex flex-col md:flex-row gap-8 mt-2">
           {/* Left — identity */}
           <div className="flex-none w-full md:w-64 space-y-6">
-            <h1 className="text-2xl font-bold text-gray-900">{detail.name}</h1>
+            {isRenamingGroup ? (
+              <div className="space-y-1">
+                <input
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-xl font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') renameMutation.mutate(renameValue);
+                    if (e.key === 'Escape') setIsRenamingGroup(false);
+                  }}
+                />
+                {renameError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                    {renameError}
+                  </p>
+                )}
+                <div className="flex gap-2 justify-end pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsRenamingGroup(false)}
+                    disabled={renameMutation.isPending}
+                    className="text-xs px-3 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => renameMutation.mutate(renameValue)}
+                    disabled={renameMutation.isPending}
+                    className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+                  >
+                    {renameMutation.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2">
+                <h1 className="text-2xl font-bold text-gray-900">{detail.name}</h1>
+                {effectiveIsLeader && (
+                  <EditButton onClick={startRename} className="mt-1.5" />
+                )}
+              </div>
+            )}
 
             <button
               className="flex items-center gap-1.5 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-100 transition-colors"

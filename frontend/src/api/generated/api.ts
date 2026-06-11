@@ -52,6 +52,8 @@ export interface User {
   name: string;
   is_active: boolean;
   is_superuser: boolean;
+  /** True after the user has used their one-time display-name change. */
+  name_frozen: boolean;
   logins: LoginAccount[];
   groups: UserGroupRoleSplit;
   /**
@@ -143,6 +145,14 @@ export type PatchMyAttributesBody = {
 
 export type PatchMyAttributes200 = { [key: string]: unknown };
 
+export type SetDisplayNameBody = {
+  name: string;
+};
+
+export type SetDisplayName200 = { [key: string]: unknown };
+
+export type ToggleNameFreeze200 = { [key: string]: unknown };
+
 export type DisbandGroup200 = { [key: string]: unknown };
 
 export type AddMemberBody = {
@@ -192,6 +202,13 @@ export type AddChildGroupBody = {
 export type AddChildGroup200 = { [key: string]: unknown };
 
 export type DetachChildGroup200 = { [key: string]: unknown };
+
+export type RenameGroupBody = {
+  /** @minLength 5 */
+  name: string;
+};
+
+export type RenameGroup200 = { [key: string]: unknown };
 
 export type SetGoogleSyncBody = {
   /** @pattern ^[a-z0-9.]+$ */
@@ -256,6 +273,34 @@ const patchMyAttributes = (
       {url: `/users/me/attributes`, method: 'PATCH',
       headers: {'Content-Type': 'application/json', },
       data: patchMyAttributesBody
+    },
+      );
+    }
+
+/**
+ * Changes the caller's display name. Allowed once per user; blocked with 403 if `name_frozen` is already set. Superusers can change their name any number of times regardless of the flag.
+ * @summary Change own display name (one-time)
+ */
+const setDisplayName = (
+    setDisplayNameBody: SetDisplayNameBody,
+ ) => {
+      return customMutator<SetDisplayName200>(
+      {url: `/users/me/name`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: setDisplayNameBody
+    },
+      );
+    }
+
+/**
+ * Flips the `name_frozen` flag. If currently frozen, clears it; if clear, sets it. Requires the caller to be a superuser in superuser mode.
+ * @summary Toggle a user's name-change lock (superuser only)
+ */
+const toggleNameFreeze = (
+    username: string,
+ ) => {
+      return customMutator<ToggleNameFreeze200>(
+      {url: `/users/${username}/toggle-freeze`, method: 'POST'
     },
       );
     }
@@ -463,6 +508,22 @@ const detachChildGroup = (
     }
 
 /**
+ * Changes the group's name. Requires caller to be the group's **leader** or a superuser in superuser mode. Name must be at least 5 characters.
+ * @summary Rename a group
+ */
+const renameGroup = (
+    groupName: string,
+    renameGroupBody: RenameGroupBody,
+ ) => {
+      return customMutator<RenameGroup200>(
+      {url: `/groups/${groupName}/name`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: renameGroupBody
+    },
+      );
+    }
+
+/**
  * Sets `recursive_name` and/or `direct_name` for the group's Google Workspace sync configuration. Both fields are optional — omit a field to leave it unchanged. Requires caller to be the group's **leader**.
  * @summary Set Google Workspace sync config
  */
@@ -521,10 +582,12 @@ const getSearchLinkGen = (
       );
     }
 
-return {searchUsers,getMe,patchMyAttributes,getUser,getGroups,getGroup,disbandGroup,addMember,removeMember,addManager,removeManager,addLeader,removeLeader,resignLeader,createSubgroup,addChildGroup,detachChildGroup,setGoogleSync,setGroupColor,searchAll,getSearchLinkGen}};
+return {searchUsers,getMe,patchMyAttributes,setDisplayName,toggleNameFreeze,getUser,getGroups,getGroup,disbandGroup,addMember,removeMember,addManager,removeManager,addLeader,removeLeader,resignLeader,createSubgroup,addChildGroup,detachChildGroup,renameGroup,setGoogleSync,setGroupColor,searchAll,getSearchLinkGen}};
 export type SearchUsersResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['searchUsers']>>>
 export type GetMeResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getMe']>>>
 export type PatchMyAttributesResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['patchMyAttributes']>>>
+export type SetDisplayNameResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['setDisplayName']>>>
+export type ToggleNameFreezeResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['toggleNameFreeze']>>>
 export type GetUserResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getUser']>>>
 export type GetGroupsResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getGroups']>>>
 export type GetGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['getGroup']>>>
@@ -539,6 +602,7 @@ export type ResignLeaderResult = NonNullable<Awaited<ReturnType<ReturnType<typeo
 export type CreateSubgroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['createSubgroup']>>>
 export type AddChildGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['addChildGroup']>>>
 export type DetachChildGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['detachChildGroup']>>>
+export type RenameGroupResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['renameGroup']>>>
 export type SetGoogleSyncResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['setGoogleSync']>>>
 export type SetGroupColorResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['setGroupColor']>>>
 export type SearchAllResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuthentikRoleUIBackend>['searchAll']>>>

@@ -5,8 +5,11 @@ import type { User, GroupRole } from '../../types';
 import GroupTag from '../group/GroupTag';
 import CopyIcon from '../ui/CopyIcon';
 import Section from '../ui/Section';
-import { patchMyAttributes } from '../../api/users';
+import EditButton from '../ui/EditButton';
+import NameFreezeToggle from './NameFreezeToggle';
+import { patchMyAttributes, setDisplayName } from '../../api/users';
 import { extractApiError } from '../../api/client';
+import { useSuperuser } from '../../auth/SuperuserContext';
 
 interface UserPageProps {
   user: User;
@@ -45,8 +48,36 @@ function flattenGroups(user: User): FlatGroupMembership[] {
 const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
   const navigate = useNavigate();
   const sortedGroups = flattenGroups(user);
+  const { superuserModeActive } = useSuperuser();
 
   const queryClient = useQueryClient();
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  function invalidateUser() {
+    void queryClient.refetchQueries({ queryKey: ['user', user.username] });
+    void queryClient.refetchQueries({ queryKey: ['me'] });
+  }
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => setDisplayName(name),
+    onSuccess: () => {
+      setIsEditingName(false);
+      setNameError(null);
+      invalidateUser();
+    },
+    onError: (err) => setNameError(extractApiError(err)),
+  });
+
+  function startEditingName() {
+    setNameValue(user.name);
+    setNameError(null);
+    setIsEditingName(true);
+  }
+
+  const canEditName = isMe && (!user.name_frozen || superuserModeActive);
 
   const [isEditingAttrs, setIsEditingAttrs] = useState(false);
   const [editedAttrs, setEditedAttrs] = useState<[string, string][]>([]);
@@ -60,8 +91,7 @@ const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
     onSuccess: () => {
       setSaveError(null);
       setIsEditingAttrs(false);
-      void queryClient.invalidateQueries({ queryKey: ['user', user.username] });
-      void queryClient.invalidateQueries({ queryKey: ['me'] });
+      invalidateUser();
     },
     onError: (err) => setSaveError(extractApiError(err)),
   });
@@ -93,15 +123,61 @@ const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 max-w-xl w-full mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-900">{user.name}</h1>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-          }`}
-        >
-          {user.is_active ? 'Active' : 'Suspended'}
-        </span>
+      <div className="mb-4">
+        {isEditingName ? (
+          <div className="space-y-1">
+            <input
+              className="w-full rounded border border-gray-300 px-2 py-1 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') renameMutation.mutate(nameValue);
+                if (e.key === 'Escape') setIsEditingName(false);
+              }}
+            />
+            {nameError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                {nameError}
+              </p>
+            )}
+            <div className="flex gap-2 justify-end pt-0.5">
+              <button
+                type="button"
+                onClick={() => setIsEditingName(false)}
+                disabled={renameMutation.isPending}
+                className="text-xs px-3 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => renameMutation.mutate(nameValue)}
+                disabled={renameMutation.isPending}
+                className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {renameMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 flex-wrap">
+            <h1 className="text-2xl font-semibold text-gray-900">{user.name}</h1>
+            <span
+              className={`self-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {user.is_active ? 'Active' : 'Suspended'}
+            </span>
+            {canEditName && (
+              <EditButton onClick={startEditingName} className="self-center" />
+            )}
+            {superuserModeActive && (
+              <NameFreezeToggle username={user.username} frozen={user.name_frozen} className="self-center" />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Login details */}

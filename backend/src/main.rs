@@ -158,20 +158,11 @@ async fn main() -> anyhow::Result<()> {
         1,
     ));
 
-    // Rate limiter: 10 req/s sustained, burst of 50, keyed by peer IP.
-    let governor_conf = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(config.rps_limit)
-            .burst_size(config.rps_burst_limit)
-            .finish()
-            .unwrap(),
-    );
-
     // Build the axum router.
     // ServeDir handles real asset files; the fallback closure returns the
     // config-injected index.html for all other paths so React Router can
     // handle client-side navigation.
-    let app = Router::new()
+    let base_router = Router::new()
         .merge(routes::router(state))
         .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
         .fallback(move || {
@@ -186,8 +177,24 @@ async fn main() -> anyhow::Result<()> {
                 headers.insert(HeaderName::from_static("referrer-policy"), HeaderValue::from_static("strict-origin-when-cross-origin"));
                 (headers, (*html).clone()).into_response()
             }
-        })
-        .layer(GovernorLayer { config: governor_conf })
+        });
+
+    // Rate limiter: disabled in debug builds, active in release.
+    #[cfg(debug_assertions)]
+    let app = base_router;
+    #[cfg(not(debug_assertions))]
+    let app = {
+        let governor_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(config.rps_limit)
+                .burst_size(config.rps_burst_limit)
+                .finish()
+                .unwrap(),
+        );
+        base_router.layer(GovernorLayer { config: governor_conf })
+    };
+
+    let app = app
         .layer(axum::middleware::from_fn(log_server_errors))
         .layer({
             if config.cors_permissive {

@@ -14,6 +14,7 @@ import {
   addChildGroup as _addChildGroup,
   setGroupColor as _setGroupColor,
   setGoogleSync as _setGoogleSync,
+  renameGroup as _renameGroup,
 } from './generated';
 
 export { getGroups, getGroup, disbandGroup, removeMember, removeManager, removeLeader, detachChildGroup };
@@ -44,3 +45,6 @@ export const setGoogleSync = (
   recursive_name?: string,
   direct_name?: string,
 ) => _setGoogleSync(groupName, { recursive_name, direct_name });
+
+export const renameGroup = (groupName: string, name: string) =>
+  _renameGroup(groupName, { name });
