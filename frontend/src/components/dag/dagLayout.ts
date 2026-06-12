@@ -330,7 +330,6 @@ export function computeNodeTops(
 function assignToRails(nodes: Map<string, NodeInput>): {
   railOf: Map<string, number>;
   railGroups: Map<number, string[]>;
-  isolated: string[];
 } {
   const inDegree = new Map<string, number>();
   for (const [id, n] of nodes) {
@@ -365,23 +364,16 @@ function assignToRails(nodes: Map<string, NodeInput>): {
     if (!railOf.has(id)) railOf.set(id, 0);
   }
 
-  const isolated: string[] = [];
   const railGroups = new Map<number, string[]>();
-  for (const [id, n] of nodes) {
-    if (n.parents.length === 0 && n.children.length === 0) {
-      isolated.push(id);
-      continue;
-    }
-    const rail = railOf.get(id)!;
+  for (const [id, rail] of railOf) {
     if (!railGroups.has(rail)) railGroups.set(rail, []);
     railGroups.get(rail)!.push(id);
   }
-  isolated.sort((a, b) => a.localeCompare(b));
   for (const arr of railGroups.values()) {
     arr.sort((a, b) => a.localeCompare(b));
   }
 
-  return { railOf, railGroups, isolated };
+  return { railOf, railGroups };
 }
 
 /**
@@ -506,9 +498,24 @@ function solveOrderingGivenPositions(
 export function computeNodeTopsNew(
   nodes: Map<string, NodeInput>,
 ): Map<string, number> {
-  const { railGroups: initialRailGroups, isolated } = assignToRails(nodes);
+  const { railGroups: initialRailGroups } = assignToRails(nodes);
 
-  let railGroups = initialRailGroups;
+  const connectedRailGroups = new Map<number, string[]>();
+  const isolatedByRail = new Map<number, string[]>();
+
+  for (const [rail, ids] of initialRailGroups) {
+    const connected: string[] = [];
+    const isolated: string[] = [];
+    for (const id of ids) {
+      const n = nodes.get(id)!;
+      if (n.parents.length > 0 || n.children.length > 0) connected.push(id);
+      else isolated.push(id);
+    }
+    if (connected.length > 0) connectedRailGroups.set(rail, connected);
+    if (isolated.length > 0) isolatedByRail.set(rail, isolated);
+  }
+
+  let railGroups = connectedRailGroups;
   let yCenters = new Map<string, number>();
 
   for (let iter = 0; iter < 20; iter++) {
@@ -530,43 +537,6 @@ export function computeNodeTopsNew(
   const tops = new Map<string, number>();
   for (const [id, yc] of yCenters) {
     tops.set(id, yc - nodes.get(id)!.height / 2);
-  }
-
-  // Column alignment pass — shift each column as a whole to minimise Σ|Δy|
-  // over all incoming edges.  The spring model converges to a balanced
-  // squared-energy state that can systematically place a column above or below
-  // its parents.  Applying the per-column median shift corrects this before the
-  // fine-tuning pass runs.  Columns are processed left-to-right so each column
-  // aligns to the already-corrected positions of its parents.
-  {
-    const sortedColsAlign = Array.from(railGroups.keys()).sort((a, b) => a - b);
-    for (const col of sortedColsAlign) {
-      if (col === 0) continue;
-      const rail = railGroups.get(col) ?? [];
-      const diffs: number[] = [];
-      for (const id of rail) {
-        const cTop = tops.get(id);
-        if (cTop === undefined) continue;
-        const cCenter = cTop + nodes.get(id)!.height / 2;
-        for (const parentId of nodes.get(id)!.parents) {
-          const pTop = tops.get(parentId);
-          if (pTop === undefined) continue;
-          const pCenter = pTop + nodes.get(parentId)!.height / 2;
-          diffs.push(pCenter - cCenter);
-        }
-      }
-      if (diffs.length === 0) continue;
-      const sortedD = [...diffs].sort((a, b) => a - b);
-      const mid = Math.floor(sortedD.length / 2);
-      const shift = sortedD.length % 2 === 1
-        ? sortedD[mid]
-        : (sortedD[mid - 1] + sortedD[mid]) / 2;
-      if (Math.abs(shift) < 1) continue;
-      for (const id of rail) {
-        const t = tops.get(id);
-        if (t !== undefined) tops.set(id, t + shift);
-      }
-    }
   }
 
   // Local improvement pass — same absolute-distance fine-tuning as computeNodeTops.
@@ -657,17 +627,16 @@ export function computeNodeTopsNew(
     }
   }
 
-  // Place isolated nodes (no edges) below all connected nodes.
-  if (isolated.length > 0) {
+  for (const [rail, isoIds] of isolatedByRail) {
+    const connIds = railGroups.get(rail) ?? [];
     let bottomY = 0;
-    for (const t of tops.values()) bottomY = Math.max(bottomY, t);
-    // Add the height of the node at the current max top.
-    for (const [id, t] of tops) {
-      bottomY = Math.max(bottomY, t + nodes.get(id)!.height);
+    for (const id of connIds) {
+      bottomY = Math.max(bottomY, (tops.get(id) ?? 0) + nodes.get(id)!.height);
     }
-    bottomY += NODE_GAP;
+    if (connIds.length > 0) bottomY += NODE_GAP;
+
     let y = bottomY;
-    for (const id of isolated) {
+    for (const id of [...isoIds].sort((a, b) => a.localeCompare(b))) {
       tops.set(id, y);
       y += nodes.get(id)!.height + NODE_GAP;
     }
