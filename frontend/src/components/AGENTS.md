@@ -18,4 +18,4 @@ One canonical component per object type. Before creating a new component for an 
 - `group/` — group-specific components (GroupPage, GroupTag, GroupRow, etc.)
 - `user/` — user-specific components (UserPage, NameFreezeToggle)
 - `panels/` — slide-in preview panels (UserPreviewPanel, GroupDetailPanel, etc.)
-- `dag/` — React Flow group DAG visualisation
+- `dag/` — React Flow group DAG visualisation; layout backends in `dag/layouts/`
