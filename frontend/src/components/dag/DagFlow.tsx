@@ -16,6 +16,7 @@ import GroupNode, { type GroupNodeType } from "../group/GroupNode";
 import {
   LAYOUTS,
   type LayoutAlgorithm,
+  COLUMN_WIDTH,
   NODE_HEADER_HEIGHT,
   NODE_MEMBER_ROW_HEIGHT,
   NODE_FOOTER_PAD,
@@ -116,6 +117,10 @@ function buildGraphElements(
 
   const nodes: GroupNodeType[] = realGroups.map((g) => {
     const pos = positions.get(g.name) ?? { x: 0, y: 0 };
+    const memberCount = g.members.leader.length + g.members.manager.length + g.members.member.length;
+    const height =
+      heightOverrides.get(g.name) ??
+      NODE_HEADER_HEIGHT + memberCount * NODE_MEMBER_ROW_HEIGHT + NODE_FOOTER_PAD;
     const data: GroupNodeData = {
       groupName: g.name,
       detail: { ...g, color: g.color ?? "#e2e8f0" },
@@ -123,7 +128,7 @@ function buildGraphElements(
       onMemberClick,
       isVirtual: false,
     };
-    return { id: g.name, type: "groupNode" as const, position: pos, data };
+    return { id: g.name, type: "groupNode" as const, position: pos, width: COLUMN_WIDTH, height, data };
   });
 
   // Place virtual nodes in a row below all real nodes.
@@ -142,6 +147,10 @@ function buildGraphElements(
   const virtualY = maxY + VIRTUAL_Y_OFFSET;
   for (const vg of virtualGroups) {
     const virtualX = virtualGroups.indexOf(vg) * (VIRTUAL_NODE_WIDTH + VIRTUAL_GAP);
+    const vMemberCount = vg.members.leader.length + vg.members.manager.length + vg.members.member.length;
+    const vHeight =
+      heightOverrides.get(vg.name) ??
+      NODE_HEADER_HEIGHT + vMemberCount * NODE_MEMBER_ROW_HEIGHT + NODE_FOOTER_PAD;
     const data: GroupNodeData = {
       groupName: vg.name,
       detail: { ...vg, color: vg.color ?? "#e5e7eb" },
@@ -153,6 +162,8 @@ function buildGraphElements(
       id: vg.name,
       type: "groupNode" as const,
       position: { x: virtualX, y: virtualY },
+      width: VIRTUAL_NODE_WIDTH,
+      height: vHeight,
       data,
     });
   }

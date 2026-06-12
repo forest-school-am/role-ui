@@ -45,7 +45,7 @@ const StructurePage: React.FC = () => {
   const resolvedGroups = groups ?? [];
 
   return (
-    <div className="relative w-full h-full bg-gray-50">
+    <div className="relative w-full h-full overflow-hidden bg-gray-50">
       <DAGCanvas
         groups={resolvedGroups}
         onGroupSelect={(name, isVirtual) =>
