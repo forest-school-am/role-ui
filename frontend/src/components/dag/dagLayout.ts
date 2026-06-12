@@ -316,6 +316,336 @@ export function computeNodeTops(
 }
 
 // ---------------------------------------------------------------------------
+// Spring-energy layout (computeNodeTopsNew)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 — Assign each node to a rail equal to its longest-path depth in the DAG.
+ * Roots (no parents present in the node set) go to rail 0.
+ *
+ * Uses Kahn's BFS: track how many in-set parents each node is still waiting
+ * for.  A node is enqueued only once that counter reaches zero, so when it is
+ * dequeued its depth is already the true maximum over all parent paths — O(V + E).
+ */
+function assignToRails(nodes: Map<string, NodeInput>): {
+  railOf: Map<string, number>;
+  railGroups: Map<number, string[]>;
+} {
+  const inDegree = new Map<string, number>();
+  for (const [id, n] of nodes) {
+    inDegree.set(id, n.parents.filter((p) => nodes.has(p)).length);
+  }
+
+  const railOf = new Map<string, number>();
+  const queue: string[] = [];
+
+  for (const [id] of nodes) {
+    if ((inDegree.get(id) ?? 0) === 0) {
+      railOf.set(id, 0);
+      queue.push(id);
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const id = queue[head++];
+    const depth = railOf.get(id)!;
+    for (const child of nodes.get(id)!.children) {
+      if (!nodes.has(child)) continue;
+      railOf.set(child, Math.max(railOf.get(child) ?? 0, depth + 1));
+      const remaining = (inDegree.get(child) ?? 1) - 1;
+      inDegree.set(child, remaining);
+      if (remaining === 0) queue.push(child);
+    }
+  }
+
+  // Fallback for nodes in cycles or otherwise unreachable from any root.
+  for (const id of nodes.keys()) {
+    if (!railOf.has(id)) railOf.set(id, 0);
+  }
+
+  const railGroups = new Map<number, string[]>();
+  for (const [id, rail] of railOf) {
+    if (!railGroups.has(rail)) railGroups.set(rail, []);
+    railGroups.get(rail)!.push(id);
+  }
+  for (const arr of railGroups.values()) {
+    arr.sort((a, b) => a.localeCompare(b));
+  }
+
+  return { railOf, railGroups };
+}
+
+/**
+ * Step 2 — Given a fixed top-to-bottom ordering on each rail, find y-center
+ * positions that minimise Σ(y_i − y_j)² over all DAG edges (i, j), subject
+ * to non-overlap constraints within each rail.
+ *
+ * Each iteration sweeps columns left→right then right→left.  Within a column
+ * every node's target is set to the mean y-center of its spring neighbours
+ * (parents + children on other rails), then the rail is packed with that
+ * target while enforcing the minimum-gap ordering constraint.  Sweeps repeat
+ * until the squared-distance energy stops improving.
+ */
+function solvePositionsGivenOrdering(
+  nodes: Map<string, NodeInput>,
+  railGroups: Map<number, string[]>,
+): Map<string, number> {
+  function nodeHeight(id: string): number {
+    return nodes.get(id)!.height;
+  }
+
+  // Initialise: stack each rail compactly from y = 0.
+  const yCenters = new Map<string, number>();
+  for (const [, rail] of railGroups) {
+    let top = 0;
+    for (const id of rail) {
+      const h = nodeHeight(id);
+      yCenters.set(id, top + h / 2);
+      top += h + NODE_GAP;
+    }
+  }
+
+  // Pack a rail (top-to-bottom order) toward per-node target centers.
+  // A node sits at its target when the target is at or below the forced
+  // minimum; otherwise it is pushed down to the minimum imposed by the
+  // node above it.
+  function packRail(rail: string[], targets: Map<string, number>): void {
+    let floor = 0; // minimum top-y for the current node
+    for (const id of rail) {
+      const h = nodeHeight(id);
+      const target = targets.get(id) ?? floor + h / 2;
+      const center = Math.max(floor + h / 2, target);
+      yCenters.set(id, center);
+      floor = center + h / 2 + NODE_GAP;
+    }
+  }
+
+  function springEnergy(): number {
+    let e = 0;
+    for (const [id, n] of nodes) {
+      const yi = yCenters.get(id) ?? 0;
+      for (const child of n.children) {
+        const yj = yCenters.get(child) ?? 0;
+        e += (yi - yj) ** 2;
+      }
+    }
+    return e;
+  }
+
+  const sortedCols = Array.from(railGroups.keys()).sort((a, b) => a - b);
+
+  function sweepColumns(cols: number[]): void {
+    for (const col of cols) {
+      const rail = railGroups.get(col)!;
+      const targets = new Map<string, number>();
+      for (const id of rail) {
+        const n = nodes.get(id)!;
+        const nb = [...n.parents, ...n.children];
+        targets.set(
+          id,
+          nb.length > 0
+            ? nb.reduce((s, j) => s + (yCenters.get(j) ?? 0), 0) / nb.length
+            : (yCenters.get(id) ?? 0),
+        );
+      }
+      packRail(rail, targets);
+    }
+  }
+
+  let prevEnergy = Infinity;
+  for (let iter = 0; iter < 50; iter++) {
+    sweepColumns(sortedCols);
+    sweepColumns([...sortedCols].reverse());
+    const e = springEnergy();
+    if (Math.abs(e - prevEnergy) < 0.01) break;
+    prevEnergy = e;
+  }
+
+  return yCenters;
+}
+
+/**
+ * Step 3 — Re-sort each rail by ascending y-center (ties broken
+ * alphabetically), returning the updated ordering.
+ */
+function solveOrderingGivenPositions(
+  railGroups: Map<number, string[]>,
+  yCenters: Map<string, number>,
+): Map<number, string[]> {
+  const result = new Map<number, string[]>();
+  for (const [rail, ids] of railGroups) {
+    result.set(
+      rail,
+      [...ids].sort((a, b) => {
+        const dy = (yCenters.get(a) ?? 0) - (yCenters.get(b) ?? 0);
+        return dy !== 0 ? dy : a.localeCompare(b);
+      }),
+    );
+  }
+  return result;
+}
+
+/**
+ * Spring-energy alternative to computeNodeTops.
+ *
+ * 1. assignToRails                — place each node on a rail by DAG depth.
+ * 2. Loop until ordering stabilises (up to 20 outer iterations):
+ *    a. solvePositionsGivenOrdering — slide nodes to minimise spring energy.
+ *    b. solveOrderingGivenPositions — re-sort each rail by current y-center.
+ * 3. Append isolated nodes (no DAG edges) at the bottom of their rail.
+ */
+export function computeNodeTopsNew(
+  nodes: Map<string, NodeInput>,
+): Map<string, number> {
+  const { railGroups: initialRailGroups } = assignToRails(nodes);
+
+  const connectedRailGroups = new Map<number, string[]>();
+  const isolatedByRail = new Map<number, string[]>();
+
+  for (const [rail, ids] of initialRailGroups) {
+    const connected: string[] = [];
+    const isolated: string[] = [];
+    for (const id of ids) {
+      const n = nodes.get(id)!;
+      if (n.parents.length > 0 || n.children.length > 0) connected.push(id);
+      else isolated.push(id);
+    }
+    if (connected.length > 0) connectedRailGroups.set(rail, connected);
+    if (isolated.length > 0) isolatedByRail.set(rail, isolated);
+  }
+
+  let railGroups = connectedRailGroups;
+  let yCenters = new Map<string, number>();
+
+  for (let iter = 0; iter < 20; iter++) {
+    yCenters = solvePositionsGivenOrdering(nodes, railGroups);
+    const newRailGroups = solveOrderingGivenPositions(railGroups, yCenters);
+
+    let orderingChanged = false;
+    for (const [rail, newOrder] of newRailGroups) {
+      const oldOrder = railGroups.get(rail) ?? [];
+      if (newOrder.some((id, i) => id !== oldOrder[i])) {
+        orderingChanged = true;
+        break;
+      }
+    }
+    railGroups = newRailGroups;
+    if (!orderingChanged) break;
+  }
+
+  const tops = new Map<string, number>();
+  for (const [id, yc] of yCenters) {
+    tops.set(id, yc - nodes.get(id)!.height / 2);
+  }
+
+  // Local improvement pass — same absolute-distance fine-tuning as computeNodeTops.
+  // Moves each node within its available gap toward the median of its neighbours'
+  // centres, accepting only moves that strictly decrease Σ|Δy|.  Repeats until
+  // no node moves (guaranteed to converge).
+  function medianOf(values: number[]): number {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  const sortedRailEntries = Array.from(railGroups.entries()).sort(([a], [b]) => a - b);
+
+  // Accept moves that are neutral (costDelta ≤ 0) — a neutral move may create
+  // room for a neighbour to make an improving move in the next pass.
+  // Cap at 200 passes to guarantee termination.
+  let anyMoved = true;
+  let passLimit = 200;
+  while (anyMoved && passLimit-- > 0) {
+    anyMoved = false;
+    for (const [, rail] of sortedRailEntries) {
+      const colNodes = [...rail].sort((a, b) => (tops.get(a) ?? 0) - (tops.get(b) ?? 0));
+      for (let i = 0; i < colNodes.length; i++) {
+        const id = colNodes[i];
+        const h = nodes.get(id)!.height;
+        const lo =
+          i === 0
+            ? 0
+            : (tops.get(colNodes[i - 1])! + nodes.get(colNodes[i - 1])!.height + NODE_GAP);
+        const hi =
+          i === colNodes.length - 1
+            ? Infinity
+            : (tops.get(colNodes[i + 1])! - h - NODE_GAP);
+        if (lo > hi - 0.5) continue;
+
+        const n = nodes.get(id)!;
+        const neighborCenters: number[] = [
+          ...n.parents.flatMap((p) => {
+            const t = tops.get(p);
+            return t !== undefined ? [t + nodes.get(p)!.height / 2] : [];
+          }),
+          ...n.children.flatMap((c) => {
+            const t = tops.get(c);
+            return t !== undefined ? [t + nodes.get(c)!.height / 2] : [];
+          }),
+        ];
+        if (neighborCenters.length === 0) continue;
+
+        const targetCenter = medianOf(neighborCenters);
+        const oldTop = tops.get(id)!;
+        const oldCenter = oldTop + h / 2;
+
+        function costDeltaAt(newTop: number): number {
+          const newC = newTop + h / 2;
+          let d = 0;
+          for (const p of n.parents) {
+            const t = tops.get(p); if (t === undefined) continue;
+            const nc = t + nodes.get(p)!.height / 2;
+            d += Math.abs(newC - nc) - Math.abs(oldCenter - nc);
+          }
+          for (const c of n.children) {
+            const t = tops.get(c); if (t === undefined) continue;
+            const nc = t + nodes.get(c)!.height / 2;
+            d += Math.abs(newC - nc) - Math.abs(oldCenter - nc);
+          }
+          return d;
+        }
+
+        // Primary candidate: clamped median target.
+        const medianTop = Math.max(lo, Math.min(hi === Infinity ? targetCenter - h / 2 : hi, targetCenter - h / 2));
+        const medianDelta = Math.abs(medianTop - oldTop) < 0.5 ? 1 : costDeltaAt(medianTop);
+
+        // Secondary candidate: slide to hi (maximum allowed position).
+        // Moving toward hi frees space above the node for upper neighbours.
+        const hiTop = hi === Infinity ? medianTop : hi;
+        const hiDelta = (hi === Infinity || Math.abs(hiTop - oldTop) < 0.5) ? 1 : costDeltaAt(hiTop);
+
+        // Accept the best candidate that does not increase cost.
+        const bestDelta = Math.min(medianDelta, hiDelta);
+        if (bestDelta < 1e-9) {
+          const finalTop = medianDelta <= hiDelta ? medianTop : hiTop;
+          tops.set(id, finalTop);
+          anyMoved = true;
+        }
+      }
+    }
+  }
+
+  for (const [rail, isoIds] of isolatedByRail) {
+    const connIds = railGroups.get(rail) ?? [];
+    let bottomY = 0;
+    for (const id of connIds) {
+      bottomY = Math.max(bottomY, (tops.get(id) ?? 0) + nodes.get(id)!.height);
+    }
+    if (connIds.length > 0) bottomY += NODE_GAP;
+
+    let y = bottomY;
+    for (const id of [...isoIds].sort((a, b) => a.localeCompare(b))) {
+      tops.set(id, y);
+      y += nodes.get(id)!.height + NODE_GAP;
+    }
+  }
+
+  return tops;
+}
+
+// ---------------------------------------------------------------------------
 // Layout computation
 // ---------------------------------------------------------------------------
 
@@ -363,7 +693,7 @@ export function computeLayout(
     nodeInputs.set(g.name, { parents, children, height });
   }
 
-  const topsMap = computeNodeTops(nodeInputs);
+  const topsMap = computeNodeTopsNew(nodeInputs);
 
   // Re-derive column assignments for x positioning
   const columnOf = new Map<string, number>();

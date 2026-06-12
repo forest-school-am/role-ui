@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout, computeNodeTops, COLUMN_WIDTH, NODE_GAP } from './dagLayout';
+import { computeLayout, computeNodeTopsNew, COLUMN_WIDTH, NODE_GAP } from './dagLayout';
 import type { NodeInput } from './dagLayout';
 import { makeGroupDetail } from '../../test/factories';
 import type { GroupNodeType } from '../group/GroupNode';
@@ -435,7 +435,7 @@ describe('computeLayout', () => {
 // New tests — local optimality (perturbation test)
 // ---------------------------------------------------------------------------
 
-describe('computeNodeTops — local optimality (perturbation test)', () => {
+describe('computeNodeTopsNew — local optimality (perturbation test)', () => {
   it('chain of 5 nodes', () => {
     const inputs = new Map<string, NodeInput>([
       ['a', { parents: [], children: ['b'], height: 80 }],
@@ -444,7 +444,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['d', { parents: ['c'], children: ['e'], height: 70 }],
       ['e', { parents: ['d'], children: [], height: 90 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 
@@ -458,7 +458,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['g3', { parents: ['c2'], children: [], height: 90 }],
       ['g4', { parents: ['c2'], children: [], height: 70 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 
@@ -472,7 +472,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['c', { parents: ['f', 'g'], children: ['a'], height: 80 }],
       ['a', { parents: ['b', 'c'], children: [], height: 65 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 
@@ -484,7 +484,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['c2', { parents: ['m'], children: [], height: 60 }],
       ['d2', { parents: ['m'], children: [], height: 130 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 
@@ -492,7 +492,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
   for (const seed of [1, 7, 42, 137, 999]) {
     it(`random 10-node DAG seed=${seed}`, () => {
       const inputs = makeRandomDag(10, seed);
-      const tops = computeNodeTops(inputs);
+      const tops = computeNodeTopsNew(inputs);
       perturbationCheck(inputs, tops);
     });
   }
@@ -524,7 +524,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['E',                  { parents: ['C'],                      children: [],                                       height: 74  }],
       ['DevOps',             { parents: ['I'],                      children: [],                                       height: 146 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 
@@ -543,7 +543,7 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       ['G',            { parents: ['C'],            children: [],              height: 74  }],
       ['DevOps',       { parents: ['I'],            children: [],              height: 146 }],
     ]);
-    const tops = computeNodeTops(inputs);
+    const tops = computeNodeTopsNew(inputs);
     perturbationCheck(inputs, tops);
   });
 });
