@@ -42,7 +42,7 @@ const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
         )}
       </div>
 
-      <div className="px-2 py-2 space-y-0.5 max-h-48 overflow-y-auto">
+      <div className="px-2 py-2 space-y-0.5">
         {detail === null ? (
           <div className="space-y-1.5 py-1">
             <div className="h-3 rounded bg-gray-200 animate-pulse w-3/4" />
@@ -50,7 +50,7 @@ const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
           </div>
         ) : (
           <>
-            {detail.members.leader.map((m) => (
+            {[...detail.members.leader].sort((a, b) => a.username.localeCompare(b.username)).map((m) => (
               <UserRow
                 key={m.username}
                 member={m}
@@ -58,7 +58,7 @@ const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
                 onUserClick={onMemberClick}
               />
             ))}
-            {detail.members.manager.map((m) => (
+            {[...detail.members.manager].sort((a, b) => a.username.localeCompare(b.username)).map((m) => (
               <UserRow
                 key={m.username}
                 member={m}
@@ -66,7 +66,7 @@ const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
                 onUserClick={onMemberClick}
               />
             ))}
-            {detail.members.member.map((m) => (
+            {[...detail.members.member].sort((a, b) => a.username.localeCompare(b.username)).map((m) => (
               <UserRow key={m.username} member={m} onUserClick={onMemberClick} />
             ))}
             {detail.members.leader.length === 0 &&

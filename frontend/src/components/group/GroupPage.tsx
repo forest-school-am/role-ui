@@ -155,9 +155,9 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
   const resolvedGroups = allGroups ?? [];
   const canManage = effectiveIsLeader || callerRole === "manager";
 
-  const leaders = detail.members.leader;
-  const managers = detail.members.manager;
-  const members = detail.members.member;
+  const leaders = [...detail.members.leader].sort((a, b) => a.username.localeCompare(b.username));
+  const managers = [...detail.members.manager].sort((a, b) => a.username.localeCompare(b.username));
+  const members = [...detail.members.member].sort((a, b) => a.username.localeCompare(b.username));
 
   return (
     <>
@@ -265,13 +265,15 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
 
             {/* Peer groups (siblings via shared parent) */}
             {detail.parents.length > 0 && (() => {
-              const siblings = resolvedGroups.filter(
-                (g) =>
-                  g.name !== detail.name &&
-                  g.parents.some((p) =>
-                    detail.parents.some((dp) => dp.name === p.name),
-                  ),
-              );
+              const siblings = resolvedGroups
+                .filter(
+                  (g) =>
+                    g.name !== detail.name &&
+                    g.parents.some((p) =>
+                      detail.parents.some((dp) => dp.name === p.name),
+                    ),
+                )
+                .sort((a, b) => a.name.localeCompare(b.name));
               if (siblings.length === 0) return null;
               return (
                 <Section title="Peer Groups">
@@ -480,7 +482,7 @@ const GroupPage: React.FC<GroupPageProps> = ({ groupName }) => {
             <Section title="Subgroups">
               {detail.children.length > 0 ? (
                 <div className="space-y-1">
-                  {detail.children.map((child) => (
+                  {[...detail.children].sort((a, b) => a.name.localeCompare(b.name)).map((child) => (
                     <GroupRow
                       key={child.name}
                       child={child}

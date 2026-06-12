@@ -217,7 +217,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                 ) : undefined
               }
             >
-              {detail?.members.leader.map((l) => (
+              {[...(detail?.members.leader ?? [])].sort((a, b) => a.username.localeCompare(b.username)).map((l) => (
                 <MemberRow
                   key={l.username}
                   member={l}
@@ -226,7 +226,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                   callerRole={effectiveCallerRole}
                 />
               ))}
-              {managers.slice(0, 5).map((m) => (
+              {[...managers].sort((a, b) => a.username.localeCompare(b.username)).slice(0, 5).map((m) => (
                 <MemberRow
                   key={m.username}
                   member={m}
@@ -235,7 +235,8 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                   callerRole={effectiveCallerRole}
                 />
               ))}
-              {members
+              {[...members]
+                .sort((a, b) => a.username.localeCompare(b.username))
                 .slice(0, Math.max(0, 5 - managers.length))
                 .map((m) => (
                   <MemberRow
@@ -280,7 +281,7 @@ const GroupPreviewPanel: React.FC<GroupPreviewPanelProps> = ({
                 <EmptyNote>No subgroups</EmptyNote>
               ) : (
                 <>
-                  {detail.children.slice(0, 5).map((child) => (
+                  {[...detail.children].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 5).map((child) => (
                     <GroupRow
                       key={child.name}
                       child={child}

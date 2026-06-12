@@ -1,5 +1,6 @@
-import React, { createContext, useEffect, useState } from 'react';
+import React, { createContext, useEffect, useRef, useState } from 'react';
 import { getConfig } from '../config';
+import { refreshAccessToken } from './tokenRefresh';
 
 interface AuthContextValue {
   token: string | null;
@@ -51,17 +52,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userUuid, setUserUuid] = useState<string | null>(() =>
     sessionStorage.getItem('user_uuid'),
   );
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // On mount: if the stored token has already expired, clear session and redirect.
+  // Schedule a proactive refresh ~60 s before token_expires_at.
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    const expiresAt = sessionStorage.getItem('token_expires_at');
+    if (!expiresAt) return;
+    const msUntilExpiry = parseInt(expiresAt, 10) - Date.now();
+    const msUntilRefresh = Math.max(msUntilExpiry - 60_000, 0);
+    console.log('[auth] scheduling refresh in', Math.round(msUntilRefresh / 1000), 's');
+    refreshTimerRef.current = setTimeout(() => {
+      console.log('[auth] proactive refresh triggered');
+      refreshAccessToken()
+        .then((t) => { setToken(t); scheduleRefresh(); })
+        .catch(() => {
+          console.warn('[auth] proactive refresh failed, logging out');
+          sessionStorage.clear();
+          setToken(null);
+          setUserUuid(null);
+          window.location.href = '/';
+        });
+    }, msUntilRefresh);
+  };
+
+  // On mount: if token is expired try a silent refresh; only redirect on failure.
   useEffect(() => {
     const expiresAt = sessionStorage.getItem('token_expires_at');
     console.log('[auth] AuthProvider mount: expiresAt =', expiresAt, 'now =', Date.now());
     if (expiresAt && Date.now() > parseInt(expiresAt, 10)) {
-      console.warn('[auth] token expired, clearing session');
-      sessionStorage.clear();
-      window.location.href = '/';
+      console.warn('[auth] token expired on mount, attempting silent refresh');
+      refreshAccessToken()
+        .then((t) => { setToken(t); scheduleRefresh(); })
+        .catch(() => {
+          console.warn('[auth] silent refresh failed, clearing session');
+          sessionStorage.clear();
+          setToken(null);
+          setUserUuid(null);
+          window.location.href = '/';
+        });
+    } else if (token) {
+      scheduleRefresh();
     }
-  }, []);
+
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async () => {
     const { authentikBaseUrl: baseUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri } = getConfig();
