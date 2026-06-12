@@ -1,4 +1,5 @@
 import { MarkerType, type Edge } from "@xyflow/react";
+import { graphStratify, sugiyama, type GraphNode } from "d3-dag";
 import type { GroupDetail, GroupNodeData } from "../../types";
 import type { GroupNodeType } from "../group/GroupNode";
 
@@ -378,14 +379,17 @@ function assignToRails(nodes: Map<string, NodeInput>): {
 
 /**
  * Step 2 — Given a fixed top-to-bottom ordering on each rail, find y-center
- * positions that minimise Σ(y_i − y_j)² over all DAG edges (i, j), subject
- * to non-overlap constraints within each rail.
+ * positions that minimise Σ(y_i − y_j)² over all DAG edges (i, j) where
+ * |rail(i) − rail(j)| = 1, subject to non-overlap constraints within each
+ * rail.  Only neighbouring-rail springs are used; skip-rail edges (dx > 1)
+ * do not contribute forces so they don't pull a column toward distant
+ * ancestors.
  *
  * Each iteration sweeps columns left→right then right→left.  Within a column
- * every node's target is set to the mean y-center of its spring neighbours
- * (parents + children on other rails), then the rail is packed with that
- * target while enforcing the minimum-gap ordering constraint.  Sweeps repeat
- * until the squared-distance energy stops improving.
+ * every node's target is set to the mean y-center of its adjacent-rail spring
+ * neighbours, then the rail is packed with that target while enforcing the
+ * minimum-gap ordering constraint.  Sweeps repeat until the squared-distance
+ * energy stops improving.
  */
 function solvePositionsGivenOrdering(
   nodes: Map<string, NodeInput>,
@@ -393,6 +397,12 @@ function solvePositionsGivenOrdering(
 ): Map<string, number> {
   function nodeHeight(id: string): number {
     return nodes.get(id)!.height;
+  }
+
+  // Build node → rail lookup for the adjacency filter.
+  const nodeRail = new Map<string, number>();
+  for (const [rail, ids] of railGroups) {
+    for (const id of ids) nodeRail.set(id, rail);
   }
 
   // Initialise: stack each rail compactly from y = 0.
@@ -424,8 +434,10 @@ function solvePositionsGivenOrdering(
   function springEnergy(): number {
     let e = 0;
     for (const [id, n] of nodes) {
+      const ri = nodeRail.get(id) ?? 0;
       const yi = yCenters.get(id) ?? 0;
       for (const child of n.children) {
+        if ((nodeRail.get(child) ?? 0) !== ri + 1) continue;
         const yj = yCenters.get(child) ?? 0;
         e += (yi - yj) ** 2;
       }
@@ -441,7 +453,10 @@ function solvePositionsGivenOrdering(
       const targets = new Map<string, number>();
       for (const id of rail) {
         const n = nodes.get(id)!;
-        const nb = [...n.parents, ...n.children];
+        // Only include neighbours on immediately adjacent rails.
+        const nb = [...n.parents, ...n.children].filter(
+          (j) => Math.abs((nodeRail.get(j) ?? col) - col) === 1,
+        );
         targets.set(
           id,
           nb.length > 0
@@ -552,11 +567,18 @@ export function computeNodeTopsNew(
 
   const sortedRailEntries = Array.from(railGroups.entries()).sort(([a], [b]) => a - b);
 
+  // Rail lookup for the local improvement pass adjacency filter.
+  const nodeRailImprove = new Map<string, number>();
+  for (const [rail, ids] of railGroups) {
+    for (const id of ids) nodeRailImprove.set(id, rail);
+  }
+
   // Accept moves that are neutral (costDelta ≤ 0) — a neutral move may create
   // room for a neighbour to make an improving move in the next pass.
-  // Cap at 200 passes to guarantee termination.
+  // Only adjacent-rail edges (dx = 1) are counted, matching the spring objective.
+  // Cap at 2000 passes to guarantee termination.
   let anyMoved = true;
-  let passLimit = 200;
+  let passLimit = 2000;
   while (anyMoved && passLimit-- > 0) {
     anyMoved = false;
     for (const [, rail] of sortedRailEntries) {
@@ -564,6 +586,7 @@ export function computeNodeTopsNew(
       for (let i = 0; i < colNodes.length; i++) {
         const id = colNodes[i];
         const h = nodes.get(id)!.height;
+        const myRail = nodeRailImprove.get(id) ?? 0;
         const lo =
           i === 0
             ? 0
@@ -577,10 +600,12 @@ export function computeNodeTopsNew(
         const n = nodes.get(id)!;
         const neighborCenters: number[] = [
           ...n.parents.flatMap((p) => {
+            if (Math.abs((nodeRailImprove.get(p) ?? myRail) - myRail) !== 1) return [];
             const t = tops.get(p);
             return t !== undefined ? [t + nodes.get(p)!.height / 2] : [];
           }),
           ...n.children.flatMap((c) => {
+            if (Math.abs((nodeRailImprove.get(c) ?? myRail) - myRail) !== 1) return [];
             const t = tops.get(c);
             return t !== undefined ? [t + nodes.get(c)!.height / 2] : [];
           }),
@@ -595,11 +620,13 @@ export function computeNodeTopsNew(
           const newC = newTop + h / 2;
           let d = 0;
           for (const p of n.parents) {
+            if (Math.abs((nodeRailImprove.get(p) ?? myRail) - myRail) !== 1) continue;
             const t = tops.get(p); if (t === undefined) continue;
             const nc = t + nodes.get(p)!.height / 2;
             d += Math.abs(newC - nc) - Math.abs(oldCenter - nc);
           }
           for (const c of n.children) {
+            if (Math.abs((nodeRailImprove.get(c) ?? myRail) - myRail) !== 1) continue;
             const t = tops.get(c); if (t === undefined) continue;
             const nc = t + nodes.get(c)!.height / 2;
             d += Math.abs(newC - nc) - Math.abs(oldCenter - nc);
@@ -646,6 +673,58 @@ export function computeNodeTopsNew(
 }
 
 // ---------------------------------------------------------------------------
+// d3-dag Sugiyama layout
+// ---------------------------------------------------------------------------
+
+export type LayoutAlgorithm = "spring" | "sugiyama";
+
+type StratifyDatum = { id: string; parentIds: string[] };
+
+/**
+ * Use d3-dag's Sugiyama algorithm to lay out nodes.
+ *
+ * d3-dag is top-to-bottom by default; we rotate 90° by swapping x↔y:
+ *   nodeSize[0] = within-layer spread  → becomes React Flow y (varies per node)
+ *   nodeSize[1] = between-layer depth  → becomes React Flow x (= COLUMN_WIDTH)
+ *
+ * Returned map contains top-left React Flow positions.
+ */
+function computePositionsDag(
+  nodes: Map<string, NodeInput>,
+): Map<string, { x: number; y: number }> {
+  const nodeData: StratifyDatum[] = Array.from(nodes.entries()).map(
+    ([id, n]) => ({
+      id,
+      parentIds: n.parents.filter((p) => nodes.has(p)),
+    }),
+  );
+
+  const graph = graphStratify()(nodeData);
+
+  const sizeOf = (
+    n: GraphNode<StratifyDatum, unknown>,
+  ): readonly [number, number] => {
+    const h = nodes.get(n.data.id)?.height ?? 60;
+    // [within-layer spread, between-layer depth]
+    return [h + NODE_GAP, COLUMN_WIDTH];
+  };
+
+  const layout = sugiyama().nodeSize(sizeOf).gap([0, 0]);
+  layout(graph);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const node of graph.nodes()) {
+    const id = node.data.id;
+    const h = nodes.get(id)?.height ?? 60;
+    positions.set(id, {
+      x: node.y - COLUMN_WIDTH / 2, // between-layer axis → React Flow x
+      y: node.x - h / 2,            // within-layer axis  → React Flow y
+    });
+  }
+  return positions;
+}
+
+// ---------------------------------------------------------------------------
 // Layout computation
 // ---------------------------------------------------------------------------
 
@@ -654,6 +733,7 @@ export function computeLayout(
   onGroupSelect: (name: string, isVirtual?: boolean) => void,
   onMemberClick: (username: string) => void,
   heightOverrides: Map<string, number>,
+  algorithm: LayoutAlgorithm = "spring",
 ): { nodes: GroupNodeType[]; edges: Edge[] } {
   const groupByName = new Map<string, GroupDetail>();
   for (const g of groups) groupByName.set(g.name, g);
@@ -693,34 +773,43 @@ export function computeLayout(
     nodeInputs.set(g.name, { parents, children, height });
   }
 
-  const topsMap = computeNodeTopsNew(nodeInputs);
+  // Compute node positions based on the chosen algorithm.
+  let nodePositions: Map<string, { x: number; y: number }>;
 
-  // Re-derive column assignments for x positioning
-  const columnOf = new Map<string, number>();
-  for (const [id, n] of nodeInputs) {
-    if (n.parents.length === 0) columnOf.set(id, 0);
-  }
-  let changedCol = true;
-  while (changedCol) {
-    changedCol = false;
+  if (algorithm === "sugiyama") {
+    nodePositions = computePositionsDag(nodeInputs);
+  } else {
+    // Spring layout: existing column + computeNodeTopsNew approach.
+    const topsMap = computeNodeTopsNew(nodeInputs);
+    const columnOf = new Map<string, number>();
     for (const [id, n] of nodeInputs) {
-      if (n.parents.length === 0) continue;
-      const maxParentCol = Math.max(...n.parents.map((p) => columnOf.get(p) ?? 0));
-      const desired = maxParentCol + 1;
-      const current = columnOf.get(id) ?? -1;
-      if (desired > current) {
-        columnOf.set(id, desired);
-        changedCol = true;
+      if (n.parents.length === 0) columnOf.set(id, 0);
+    }
+    let changedCol = true;
+    while (changedCol) {
+      changedCol = false;
+      for (const [id, n] of nodeInputs) {
+        if (n.parents.length === 0) continue;
+        const maxParentCol = Math.max(...n.parents.map((p) => columnOf.get(p) ?? 0));
+        const desired = maxParentCol + 1;
+        const current = columnOf.get(id) ?? -1;
+        if (desired > current) { columnOf.set(id, desired); changedCol = true; }
       }
     }
-  }
-  for (const id of nodeInputs.keys()) {
-    if (!columnOf.has(id)) columnOf.set(id, 0);
+    for (const id of nodeInputs.keys()) {
+      if (!columnOf.has(id)) columnOf.set(id, 0);
+    }
+    nodePositions = new Map();
+    for (const [id] of nodeInputs) {
+      nodePositions.set(id, {
+        x: (columnOf.get(id) ?? 0) * COLUMN_WIDTH,
+        y: topsMap.get(id) ?? 0,
+      });
+    }
   }
 
   const nodes: GroupNodeType[] = realGroups.map((g) => {
-    const col = columnOf.get(g.name) ?? 0;
-    const yTop = topsMap.get(g.name) ?? 0;
+    const { x: xPos, y: yTop } = nodePositions.get(g.name) ?? { x: 0, y: 0 };
 
     const data: GroupNodeData = {
       groupName: g.name,
@@ -733,7 +822,7 @@ export function computeLayout(
     return {
       id: g.name,
       type: "groupNode" as const,
-      position: { x: col * COLUMN_WIDTH, y: yTop },
+      position: { x: xPos, y: yTop },
       data,
     };
   });
@@ -742,7 +831,7 @@ export function computeLayout(
     g.members.leader.length + g.members.manager.length + g.members.member.length;
 
   const maxY = realGroups.reduce((max, g) => {
-    const yTop = topsMap.get(g.name) ?? 0;
+    const yTop = nodePositions.get(g.name)?.y ?? 0;
     const measured = heightOverrides.get(g.name);
     const h =
       measured ??

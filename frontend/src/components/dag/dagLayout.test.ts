@@ -152,11 +152,14 @@ function perturbationCheck(
     return (t.get(id) ?? 0) + inputs.get(id)!.height / 2;
   }
 
-  // Compute all edges as (parent, child) pairs
+  // Only adjacent-rail edges (dx = 1) contribute to the score, matching the
+  // spring model's objective.
   const edges: [string, string][] = [];
   for (const [id, n] of inputs) {
     for (const child of n.children) {
-      edges.push([id, child]);
+      if (Math.abs((columnOf.get(id) ?? 0) - (columnOf.get(child) ?? 0)) === 1) {
+        edges.push([id, child]);
+      }
     }
   }
 
@@ -180,17 +183,20 @@ function perturbationCheck(
     ringPos++;
   }
 
-  // Incremental sum update for edges touching `id`
+  // Incremental sum update — only adjacent-rail edges count.
   function costDeltaForMove(id: string, oldTop: number, newTop: number): number {
     const h = inputs.get(id)!.height;
     const oldC = oldTop + h / 2;
     const newC = newTop + h / 2;
+    const col = columnOf.get(id) ?? 0;
     let delta = 0;
     for (const pid of inputs.get(id)!.parents) {
+      if (Math.abs((columnOf.get(pid) ?? 0) - col) !== 1) continue;
       const nc = center(pid);
       delta += Math.abs(newC - nc) - Math.abs(oldC - nc);
     }
     for (const cid of inputs.get(id)!.children) {
+      if (Math.abs((columnOf.get(cid) ?? 0) - col) !== 1) continue;
       const nc = center(cid);
       delta += Math.abs(newC - nc) - Math.abs(oldC - nc);
     }

@@ -4,6 +4,7 @@ import {
   Background,
   Controls,
   MiniMap,
+  Panel,
   useReactFlow,
   type NodeTypes,
 } from "@xyflow/react";
@@ -11,7 +12,7 @@ import "@xyflow/react/dist/style.css";
 import type { GroupDetail } from "../../types";
 import GroupNode from "../group/GroupNode";
 import GroupNodeContent from "../group/GroupNodeContent";
-import { computeLayout } from "./dagLayout";
+import { computeLayout, type LayoutAlgorithm } from "./dagLayout";
 
 interface DAGCanvasProps {
   groups: GroupDetail[];
@@ -109,6 +110,7 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
   onFocusConsumed,
 }) => {
   const [measuredHeights, setMeasuredHeights] = useState<Map<string, number> | null>(null);
+  const [algorithm, setAlgorithm] = useState<LayoutAlgorithm>("spring");
 
   // Deduplicate so MeasureNodes renders each group exactly once.
   const uniqueGroups = useMemo(() => {
@@ -120,9 +122,9 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
   const { nodes, edges } = useMemo(
     () =>
       measuredHeights
-        ? computeLayout(groups, onGroupSelect, onMemberClick, measuredHeights)
+        ? computeLayout(groups, onGroupSelect, onMemberClick, measuredHeights, algorithm)
         : { nodes: [], edges: [] },
-    [groups, onGroupSelect, onMemberClick, measuredHeights],
+    [groups, onGroupSelect, onMemberClick, measuredHeights, algorithm],
   );
 
   return (
@@ -143,6 +145,23 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
             focusNodeId={focusNodeId ?? null}
             onFocusConsumed={onFocusConsumed}
           />
+          <Panel position="top-left">
+            <div className="flex gap-1 text-xs">
+              {(["spring", "sugiyama"] as LayoutAlgorithm[]).map((alg) => (
+                <button
+                  key={alg}
+                  onClick={() => setAlgorithm(alg)}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    algorithm === alg
+                      ? "bg-blue-500 text-white border-blue-500"
+                      : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {alg}
+                </button>
+              ))}
+            </div>
+          </Panel>
           <Background />
           <Controls />
           <MiniMap />
