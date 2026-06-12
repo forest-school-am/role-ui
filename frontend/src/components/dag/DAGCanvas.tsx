@@ -20,7 +20,7 @@ const DAGCanvas: React.FC<DAGCanvasProps> = ({
   onFocusConsumed,
 }) => {
   const [measuredHeights, setMeasuredHeights] = useState<Map<string, number> | null>(null);
-  const [algorithm, setAlgorithm] = useState<LayoutAlgorithm>("spring");
+  const [algorithm, setAlgorithm] = useState<LayoutAlgorithm>("sugiyama");
 
   // Deduplicate so MeasureNodes renders each group exactly once.
   const uniqueGroups = useMemo(() => {
