@@ -21,7 +21,7 @@ const GroupNodeContent: React.FC<GroupNodeContentProps> = ({
 
   return (
     <div
-      className="rounded-lg border border-gray-300 bg-white shadow-md min-w-[200px] max-w-[260px] overflow-hidden cursor-pointer"
+      className="rounded-lg border border-gray-300 bg-white shadow-md min-w-[200px] max-w-[260px] overflow-hidden cursor-pointer" /* 260 = NODE_CONTENT_WIDTH in dag/layouts/types.ts */
       onClick={onSelect ? () => onSelect(groupName, isVirtual) : undefined}
     >
       <div

@@ -16,7 +16,7 @@ import GroupNode, { type GroupNodeType } from "../group/GroupNode";
 import {
   LAYOUTS,
   type LayoutAlgorithm,
-  COLUMN_WIDTH,
+  NODE_CONTENT_WIDTH,
   NODE_HEADER_HEIGHT,
   NODE_MEMBER_ROW_HEIGHT,
   NODE_FOOTER_PAD,
@@ -128,7 +128,7 @@ function buildGraphElements(
       onMemberClick,
       isVirtual: false,
     };
-    return { id: g.name, type: "groupNode" as const, position: pos, width: COLUMN_WIDTH, height, data };
+    return { id: g.name, type: "groupNode" as const, position: pos, width: NODE_CONTENT_WIDTH, height, data };
   });
 
   // Place virtual nodes in a row below all real nodes.

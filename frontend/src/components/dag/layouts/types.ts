@@ -21,6 +21,9 @@ export type LayoutFn = (nodes: Map<string, NodeInput>) => NodePositions;
 export const COLUMN_WIDTH = 320;
 export const NODE_GAP = 20;
 
+// Tailwind JIT requires static class strings, so NODE_CONTENT_WIDTH cannot be
+// referenced from the max-w-[260px] class in GroupNodeContent.tsx. Keep both in sync manually.
+export const NODE_CONTENT_WIDTH = 260;
 export const NODE_HEADER_HEIGHT = 42;
 export const NODE_MEMBER_ROW_HEIGHT = 24;
 export const NODE_FOOTER_PAD = 8;
