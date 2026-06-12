@@ -188,7 +188,7 @@ const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
           <div className="flex gap-2">
             <dt className="font-medium text-gray-500 w-24 shrink-0">Google</dt>
             <dd>
-              <Contact value={user.logins.google} />
+              <Contact value={user.logins.google} href={`mailto:${user.logins.google}`} />
             </dd>
           </div>
         )}
