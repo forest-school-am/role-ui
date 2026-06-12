@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { User, GroupRole } from '../../types';
 import GroupTag from '../group/GroupTag';
+import Contact from '../ui/Contact';
 import CopyIcon from '../ui/CopyIcon';
 import Section from '../ui/Section';
 import EditButton from '../ui/EditButton';
@@ -175,20 +176,19 @@ const UserPage: React.FC<UserPageProps> = ({ user, isMe }) => {
         {user.logins.telegram && (
           <div className="flex gap-2">
             <dt className="font-medium text-gray-500 w-24 shrink-0">Telegram</dt>
-            <dd className="flex items-center gap-1.5">
-              <a href={`https://t.me/${user.logins.telegram.replace(/^@/, '')}`} className="text-blue-600 hover:underline">
-                {user.logins.telegram}
-              </a>
-              <CopyIcon text={user.logins.telegram} />
+            <dd>
+              <Contact
+                value={user.logins.telegram}
+                href={`https://t.me/${user.logins.telegram.replace(/^@/, '')}`}
+              />
             </dd>
           </div>
         )}
         {user.logins.google && (
           <div className="flex gap-2">
             <dt className="font-medium text-gray-500 w-24 shrink-0">Google</dt>
-            <dd className="flex items-center gap-1.5">
-              <span>{user.logins.google}</span>
-              <CopyIcon text={user.logins.google} />
+            <dd>
+              <Contact value={user.logins.google} />
             </dd>
           </div>
         )}

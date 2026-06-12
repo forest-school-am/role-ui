@@ -5,7 +5,7 @@ import { invalidateGroup } from '../../api/groupQueryHelpers';
 import { extractApiError } from '../../api/client';
 import Section from '../ui/Section';
 import EmptyNote from '../ui/EmptyNote';
-import CopyIcon from '../ui/CopyIcon';
+import Contact from '../ui/Contact';
 
 const GWS_DOMAIN = 'gws.forest-school.am';
 const NAME_RE = /^[a-z0-9.]+$/;
@@ -148,8 +148,9 @@ function SyncEntry({ label, name }: { label: string; name: string }) {
   return (
     <div className="flex items-center gap-1.5 text-xs">
       <span className="text-gray-400 w-14 shrink-0">{label}</span>
-      <span className="font-mono text-gray-700">{full}</span>
-      <CopyIcon text={full} />
+      <span className="font-mono text-gray-700">
+        <Contact value={full} />
+      </span>
     </div>
   );
 }

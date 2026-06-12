@@ -17,7 +17,7 @@ const UserRow: React.FC<UserRowProps> = ({ member, crownVariant, onUserClick, ac
     </span>
     <span
       className={`text-sm text-gray-800 flex-1 truncate${onUserClick ? ' cursor-pointer hover:text-indigo-600' : ''}`}
-      onClick={onUserClick ? () => onUserClick(member.username) : undefined}
+      onClick={onUserClick ? (e) => { e.stopPropagation(); onUserClick(member.username); } : undefined}
       title={member.name}
     >
       {member.name}
