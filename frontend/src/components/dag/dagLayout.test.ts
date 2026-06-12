@@ -496,4 +496,54 @@ describe('computeNodeTops — local optimality (perturbation test)', () => {
       perturbationCheck(inputs, tops);
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Live graph from authentik (as of 2026-06-12)
+  // Heights = NODE_HEADER_HEIGHT(42) + memberCount*NODE_MEMBER_ROW_HEIGHT(24) + NODE_FOOTER_PAD(8)
+  // ---------------------------------------------------------------------------
+
+  it('live authentik graph — full 16-group structure', () => {
+    const inputs = new Map<string, NodeInput>([
+      // Col 0 — roots
+      ['Bomgineering',       { parents: [],                         children: ['Platform', 'Growth', 'Marketing', 'C'], height: 146 }],
+      ['A',                  { parents: [],                         children: ['H', 'I'],                               height: 74  }],
+      ['B',                  { parents: [],                         children: [],                                       height: 74  }],
+      ['authentik Admins',   { parents: [],                         children: [],                                       height: 122 }],
+      ['authentik Read-only',{ parents: [],                         children: [],                                       height: 50  }],
+      // Col 1
+      ['Platform',           { parents: ['Bomgineering'],           children: ['F', 'G'],                               height: 146 }],
+      ['Marketing',          { parents: ['Bomgineering'],           children: ['Growth'],                               height: 122 }],
+      ['C',                  { parents: ['Bomgineering'],           children: ['D', 'E', 'G'],                          height: 122 }],
+      ['H',                  { parents: ['A'],                      children: [],                                       height: 74  }],
+      ['I',                  { parents: ['A'],                      children: ['D', 'DevOps'],                          height: 74  }],
+      // Col 2
+      ['F',                  { parents: ['Platform'],               children: [],                                       height: 74  }],
+      ['G',                  { parents: ['Platform', 'C'],          children: [],                                       height: 74  }],
+      ['Growth',             { parents: ['Bomgineering', 'Marketing'], children: [],                                    height: 122 }],
+      ['D',                  { parents: ['C', 'I'],                 children: [],                                       height: 74  }],
+      ['E',                  { parents: ['C'],                      children: [],                                       height: 74  }],
+      ['DevOps',             { parents: ['I'],                      children: [],                                       height: 146 }],
+    ]);
+    const tops = computeNodeTops(inputs);
+    perturbationCheck(inputs, tops);
+  });
+
+  // Neighbourhood of group D: two independent parent chains converge at D.
+  //   Bomgineering (col 0) → C (col 1) → { D, E, G } (col 2)
+  //   A           (col 0) → I (col 1) → { D, DevOps } (col 2)
+  // D sits at col 2 with parents from both branches — the hardest placement case.
+  it('neighbourhood of D — dual-parent convergence', () => {
+    const inputs = new Map<string, NodeInput>([
+      ['Bomgineering', { parents: [],              children: ['C'],            height: 146 }],
+      ['A',            { parents: [],              children: ['I'],            height: 74  }],
+      ['C',            { parents: ['Bomgineering'], children: ['D', 'E', 'G'], height: 122 }],
+      ['I',            { parents: ['A'],            children: ['D', 'DevOps'], height: 74  }],
+      ['D',            { parents: ['C', 'I'],       children: [],              height: 74  }],
+      ['E',            { parents: ['C'],            children: [],              height: 74  }],
+      ['G',            { parents: ['C'],            children: [],              height: 74  }],
+      ['DevOps',       { parents: ['I'],            children: [],              height: 146 }],
+    ]);
+    const tops = computeNodeTops(inputs);
+    perturbationCheck(inputs, tops);
+  });
 });
