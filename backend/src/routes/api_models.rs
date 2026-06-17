@@ -38,9 +38,16 @@ impl From<&User> for UserLink {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoogleSyncEntryConfig {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoogleSyncConfig {
-    pub recursive_name: Option<String>,
-    pub direct_name: Option<String>,
+    pub recursive: Option<GoogleSyncEntryConfig>,
+    pub direct: Option<GoogleSyncEntryConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

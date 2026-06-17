@@ -8,6 +8,6 @@ Scripts are run against the local Docker stack. SQL scripts target the Postgres 
 
 ## Adding a new SQL migration
 
-1. Create a new `.sql` file with a descriptive name.
-2. Add a recipe to `authentik.just` that pipes it through `docker compose exec -T postgresql psql ...`.
-3. Document the file in this folder's `INDEX.md`.
+1. Create `scripts/migrations/NNN-descriptive-name.sql` where `NNN` is the next integer after the current highest prefix.
+2. No changes to `authentik.just` needed — `just migrate` runs all `scripts/migrations/[0-9]*.sql` in filename order.
+3. Document the file in `scripts/migrations/INDEX.md`.

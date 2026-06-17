@@ -62,11 +62,16 @@ export interface User {
   attributes: [string, string][];
 }
 
+export interface GoogleSyncEntryConfig {
+  name?: string;
+  /** @pattern ^[a-z0-9.-]+$ */
+  email?: string;
+  description: string;
+}
+
 export interface GoogleSyncConfig {
-  /** @pattern ^[a-z0-9.]+$ */
-  recursive_name?: string;
-  /** @pattern ^[a-z0-9.]+$ */
-  direct_name?: string;
+  recursive?: GoogleSyncEntryConfig;
+  direct?: GoogleSyncEntryConfig;
 }
 
 export interface Group {
@@ -209,11 +214,16 @@ export type RenameGroupBody = {
 
 export type RenameGroup200 = { [key: string]: unknown };
 
+export type GoogleSyncEntryPatch = {
+  name?: string;
+  /** @pattern ^[a-z0-9.-]+$ */
+  email?: string;
+  description?: string;
+};
+
 export type SetGoogleSyncBody = {
-  /** @pattern ^[a-z0-9.]+$ */
-  recursive_name?: string;
-  /** @pattern ^[a-z0-9.]+$ */
-  direct_name?: string;
+  recursive?: GoogleSyncEntryPatch;
+  direct?: GoogleSyncEntryPatch;
 };
 
 export type SetGoogleSync200 = { [key: string]: unknown };

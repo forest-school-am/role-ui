@@ -15,6 +15,7 @@ import {
   setGroupColor as _setGroupColor,
   setGoogleSync as _setGoogleSync,
   renameGroup as _renameGroup,
+  type GoogleSyncEntryPatch,
 } from './generated';
 
 export { getGroups, getGroup, disbandGroup, removeMember, removeManager, removeLeader, detachChildGroup };
@@ -40,11 +41,12 @@ export const addChildGroup = (parentGroupName: string, childGroupName: string) =
 export const setGroupColor = (groupName: string, color: string) =>
   _setGroupColor(groupName, { color });
 
+export type { GoogleSyncEntryPatch };
+
 export const setGoogleSync = (
   groupName: string,
-  recursive_name?: string,
-  direct_name?: string,
-) => _setGoogleSync(groupName, { recursive_name, direct_name });
+  body: { recursive?: GoogleSyncEntryPatch; direct?: GoogleSyncEntryPatch },
+) => _setGoogleSync(groupName, body);
 
 export const renameGroup = (groupName: string, name: string) =>
   _renameGroup(groupName, { name });

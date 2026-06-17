@@ -16,7 +16,7 @@ beforeEach(() => {
 
 describe('getMe', () => {
   it('GET /api/users/me', async () => {
-    const user = { username: 'alice', name: 'Alice', is_active: true, logins: [], groups: { leader: [], manager: [], member: [] }, attributes: [] };
+    const user = { username: 'alice', name: 'Alice', is_active: true, logins: {}, groups: { leader: [], manager: [], member: [] }, attributes: [] };
     mockGet.mockResolvedValue({ data: user });
     const result = await getMe();
     expect(mockGet).toHaveBeenCalledWith('/api/users/me');

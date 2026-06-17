@@ -111,15 +111,36 @@ components:
             minItems: 2
             maxItems: 2
 
+    GoogleSyncEntryConfig:
+      type: object
+      required: [description]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          pattern: '^[a-z0-9.-]+$'
+        description:
+          type: string
+
+    GoogleSyncEntryPatch:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          pattern: '^[a-z0-9.-]+$'
+        description:
+          type: string
+
     GoogleSyncConfig:
       type: object
       properties:
-        recursive_name:
-          type: string
-          pattern: '^[a-z0-9.]+$'
-        direct_name:
-          type: string
-          pattern: '^[a-z0-9.]+$'
+        recursive:
+          $ref: '#/components/schemas/GoogleSyncEntryConfig'
+        direct:
+          $ref: '#/components/schemas/GoogleSyncEntryConfig'
 
     Group:
       type: object
@@ -798,9 +819,10 @@ paths:
       operationId: setGoogleSync
       summary: Set Google Workspace sync config
       description: >
-        Sets `recursive_name` and/or `direct_name` for the group's Google Workspace
-        sync configuration. Both fields are optional — omit a field to leave it
-        unchanged. Requires caller to be the group's **leader**.
+        Patches fields on the `recursive` and/or `direct` Google Workspace sync
+        entry for the group. Both top-level keys are optional; within each entry
+        all fields are optional patches — omit a field to leave it unchanged.
+        Requires caller to be the group's **leader**.
       parameters:
         - $ref: '#/components/parameters/GroupName'
       requestBody:
@@ -810,12 +832,10 @@ paths:
             schema:
               type: object
               properties:
-                recursive_name:
-                  type: string
-                  pattern: '^[a-z0-9.]+$'
-                direct_name:
-                  type: string
-                  pattern: '^[a-z0-9.]+$'
+                recursive:
+                  $ref: '#/components/schemas/GoogleSyncEntryPatch'
+                direct:
+                  $ref: '#/components/schemas/GoogleSyncEntryPatch'
       responses:
         '200':
           description: Sync config updated.

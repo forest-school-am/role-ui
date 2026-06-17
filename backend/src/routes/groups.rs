@@ -540,14 +540,20 @@ async fn rename_group(
 }
 
 #[derive(Deserialize)]
+struct GoogleSyncEntryBody {
+    name: Option<String>,
+    email: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct SetGoogleSyncBody {
-    recursive_name: Option<String>,
-    direct_name: Option<String>,
+    recursive: Option<GoogleSyncEntryBody>,
+    direct: Option<GoogleSyncEntryBody>,
 }
 
 /// PATCH /api/groups/:group_name/google-sync
-/// Body: {"recursive_name": "...", "direct_name": "..."} — both fields optional.
-/// Sets or clears the google_sync namespace for the group.
+/// Each of `recursive` and `direct` is optional; within each, all fields are optional patches.
 async fn set_google_sync(
     State(state): State<AppState>,
     _fresh: FreshCache,
@@ -555,44 +561,41 @@ async fn set_google_sync(
     _write_lock: WriteLock,
     Json(body): Json<SetGoogleSyncBody>,
 ) -> Result<Json<()>, AppError> {
-    fn valid_sync_name(s: &str) -> bool {
-        !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.')
+    fn valid_email_local(s: &str) -> bool {
+        !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
     }
 
-    // Validate format.
-    if let Some(name) = &body.recursive_name {
-        if !valid_sync_name(name) {
-            return Err(AppError::BadRequest("recursive_name must match [a-z0-9.]+".to_string()));
-        }
-    }
-    if let Some(name) = &body.direct_name {
-        if !valid_sync_name(name) {
-            return Err(AppError::BadRequest("direct_name must match [a-z0-9.]+".to_string()));
+    // Validate email formats.
+    for (kind, entry) in [("recursive", body.recursive.as_ref()), ("direct", body.direct.as_ref())] {
+        if let Some(e) = entry {
+            if let Some(email) = &e.email {
+                if !valid_email_local(email) {
+                    return Err(AppError::BadRequest(format!("{kind}.email must match [a-z0-9.-]+")));
+                }
+            }
         }
     }
 
-    // Compute the effective values after this patch (fall back to the current cached value).
+    // Effective emails after this patch (fall back to current cached value).
     let current = group.google_sync.as_ref();
-    let eff_recursive = body.recursive_name.as_deref()
-        .or_else(|| current?.recursive_name.as_deref());
-    let eff_direct = body.direct_name.as_deref()
-        .or_else(|| current?.direct_name.as_deref());
+    let eff_recursive_email = body.recursive.as_ref().and_then(|e| e.email.as_deref())
+        .or_else(|| current?.recursive.as_ref().and_then(|e| e.email.as_deref()));
+    let eff_direct_email = body.direct.as_ref().and_then(|e| e.email.as_deref())
+        .or_else(|| current?.direct.as_ref().and_then(|e| e.email.as_deref()));
 
-    // The two slots must hold different values.
-    if let (Some(r), Some(d)) = (eff_recursive, eff_direct) {
+    // The two slots must hold different emails.
+    if let (Some(r), Some(d)) = (eff_recursive_email, eff_direct_email) {
         if r == d {
-            return Err(AppError::BadRequest(
-                "recursive_name and direct_name must be different".to_string(),
-            ));
+            return Err(AppError::BadRequest("recursive.email and direct.email must be different".to_string()));
         }
     }
 
-    // Every google_sync name must be globally unique across all groups.
-    for name in [eff_recursive, eff_direct].into_iter().flatten() {
-        if let Some(owner) = state.authentik_state.google_sync_name_owner(name) {
+    // Every email must be globally unique across all groups.
+    for email in [eff_recursive_email, eff_direct_email].into_iter().flatten() {
+        if let Some(owner) = state.authentik_state.google_sync_email_owner(email) {
             if owner != group.name {
                 return Err(AppError::BadRequest(format!(
-                    "`{}` is already used by group `{}`", name, owner
+                    "`{email}` is already used by group `{owner}`"
                 )));
             }
         }
@@ -604,8 +607,19 @@ async fn set_google_sync(
         .get_or_insert_with(Default::default)
         .google_sync
         .get_or_insert_with(Default::default);
-    if let Some(name) = body.recursive_name { gs.recursive_name = Some(name); }
-    if let Some(name) = body.direct_name { gs.direct_name = Some(name); }
+
+    if let Some(entry) = body.recursive {
+        let rc = gs.recursive.get_or_insert_with(Default::default);
+        if let Some(v) = entry.name { rc.name = Some(v); }
+        if let Some(v) = entry.email { rc.email = Some(v); }
+        if let Some(v) = entry.description { rc.description = v; }
+    }
+    if let Some(entry) = body.direct {
+        let dc = gs.direct.get_or_insert_with(Default::default);
+        if let Some(v) = entry.name { dc.name = Some(v); }
+        if let Some(v) = entry.email { dc.email = Some(v); }
+        if let Some(v) = entry.description { dc.description = v; }
+    }
 
     state.authentik_client.patch_group_attributes(&gpk, ga.into_raw()
         .map_err(|e| AppError::BadRequest(e.to_string()))?).await?;

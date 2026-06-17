@@ -41,11 +41,16 @@ setup:
 migrate:
     #!/usr/bin/env bash
     set -euo pipefail
-    docker compose -f docker/composes/authentik.yml exec -T postgresql \
-        psql \
-        --username="${AUTHENTIK_POSTGRESQL__USER}" \
-        --dbname="${AUTHENTIK_POSTGRESQL__NAME}" \
-        < scripts/migrate-gws-uniqueness.sql
+    _psql() {
+        docker compose -f docker/composes/authentik.yml exec -T postgresql \
+            psql \
+            --username="${AUTHENTIK_POSTGRESQL__USER}" \
+            --dbname="${AUTHENTIK_POSTGRESQL__NAME}"
+    }
+    for f in scripts/migrations/[0-9]*.sql; do
+        echo "==> $f"
+        _psql < "$f"
+    done
 
 # Create 10 test users + groups using the API token
 seed:

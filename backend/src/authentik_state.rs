@@ -5,11 +5,11 @@ use enum_map::{Enum};
 use itertools::Itertools;
 use regex::Regex;
 use tokio::sync::watch;
-use crate::routes::api_models::{Group, GroupLink, GroupRole, RoleSplit, User, UserLink};
+use crate::routes::api_models::{Group, GoogleSyncConfig, GoogleSyncEntryConfig, GroupLink, GroupRole, RoleSplit, User, UserLink};
 use crate::authentik::{AuthentikClient, AuthentikGroup};
-use crate::routes::api_models::GoogleSyncConfig;
 use authentik_forest_school_attributes::{GroupAttributes, UserAttributes};
 use crate::error::AppError;
+
 
 fn is_authentik_group(group: &AuthentikGroup) -> bool {
     group.name.starts_with("authentik") || group.is_superuser
@@ -87,14 +87,14 @@ impl AuthentikStateWrapper {
         self.state.read().unwrap().group_id_to_group(groupname).cloned()
     }
 
-    /// Returns the name of whichever group owns `name` as either `recursive_name` or
-    /// `direct_name` in its google_sync config, or `None` if the name is unclaimed.
-    pub fn google_sync_name_owner(&self, name: &str) -> Option<String> {
+    /// Returns the name of whichever group owns `email` in its google_sync config,
+    /// or `None` if unclaimed.
+    pub fn google_sync_email_owner(&self, email: &str) -> Option<String> {
         let lock = self.state.read().unwrap();
         lock.groups.iter().find_map(|g| {
             g.google_sync.as_ref().and_then(|gs| {
-                if gs.recursive_name.as_deref() == Some(name)
-                    || gs.direct_name.as_deref() == Some(name)
+                if gs.recursive.as_ref().is_some_and(|e| e.email.as_deref() == Some(email))
+                    || gs.direct.as_ref().is_some_and(|e| e.email.as_deref() == Some(email))
                 {
                     Some(g.name.clone())
                 } else {
@@ -238,8 +238,8 @@ async fn update_authentik_state(authentik_client: &AuthentikClient) -> Result<Au
             let google_sync = fs
                 .and_then(|f| f.google_sync.as_ref())
                 .map(|gs| GoogleSyncConfig {
-                    recursive_name: gs.recursive_name.clone(),
-                    direct_name: gs.direct_name.clone(),
+                    recursive: gs.recursive.as_ref().map(|c| GoogleSyncEntryConfig { name: c.name.clone(), email: c.email.clone(), description: c.description.clone() }),
+                    direct: gs.direct.as_ref().map(|c| GoogleSyncEntryConfig { name: c.name.clone(), email: c.email.clone(), description: c.description.clone() }),
                 });
 
             Group {
