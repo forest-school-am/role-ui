@@ -174,14 +174,14 @@ function SyncEntryRow({
   }
 
   return (
-    <div className="flex items-start gap-1.5 text-xs">
-      <span className="text-gray-400 w-14 shrink-0">{label}</span>
-      <div className="flex-1">
-        {entry.name && <div className="text-gray-700">{entry.name}</div>}
-        {full && <div className="font-mono text-gray-500"><Contact value={full} /></div>}
-        {entry.description && <div className="text-gray-400 italic">{entry.description}</div>}
+    <div className="text-xs space-y-0.5">
+      <div className="flex items-center justify-between">
+        <span className="text-gray-400">{label}</span>
+        {canEdit && <EditButton onClick={startEdit} />}
       </div>
-      {canEdit && <EditButton onClick={startEdit} />}
+      {entry.name && <div className="text-gray-700">{entry.name}</div>}
+      {full && <div className="font-mono text-gray-500"><Contact value={full} /></div>}
+      {entry.description && <div className="text-gray-400 italic">{entry.description}</div>}
     </div>
   );
 }
