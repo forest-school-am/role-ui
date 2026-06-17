@@ -36,5 +36,5 @@ itertools = "0.14.0"
 regex = "1.12.3"
 
 authentik_api = { git = "https://github.com/forest-school-am/authentik_api", rev = "61267dd73615dc0aeedaf3582a069e5d119cd529" }
-authentik-forest-school-attributes = { git = "https://github.com/forest-school-am/authentik_custom_attributes", rev = "20d8b27" }
+authentik-forest-school-attributes = { git = "https://github.com/forest-school-am/authentik_custom_attributes", rev = "aef343c" }
 uuid = { version = "1", features = ["serde"] }
